@@ -500,6 +500,76 @@ def api_dev_query():
         return jsonify({"success": True, "rows": rows, "count": len(rows)})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
+    
+# ── Delete Routes ─────────────────────────────────────────────────────────────
+
+@app.route("/api/files/delete", methods=["POST"])
+def api_delete_files():
+    """Xóa file trên container volume (Local)"""
+    config = get_db_config()
+    sql_dir = Path(config["sql_dir"])
+    d = request.get_json() or {}
+    to_delete = d.get("files")  # list of filenames or None = all
+
+    if not sql_dir.exists():
+        return jsonify({"success": True, "deleted": []})
+
+    deleted = []
+    if to_delete is None:  # delete all
+        for f in sql_dir.glob("*.sql"):
+            try:
+                f.unlink()
+                deleted.append(f.name)
+            except:
+                pass
+    else:
+        for name in to_delete:
+            path = sql_dir / name
+            if path.exists() and path.suffix == ".sql":
+                try:
+                    path.unlink()
+                    deleted.append(name)
+                except:
+                    pass
+
+    return jsonify({"success": True, "deleted": deleted})
+
+
+@app.route("/api/s3/delete", methods=["POST"])
+def api_s3_delete():
+    """Xóa file trên S3 (Prod)"""
+    config = get_db_config()
+    bucket = config["s3_bucket"]
+    prefix = config["s3_prefix"].rstrip("/") + "/" if config["s3_prefix"] else ""
+    
+    if not bucket:
+        return jsonify({"success": False, "message": "S3 bucket not configured"})
+
+    d = request.get_json() or {}
+    to_delete = d.get("files")  # list or None = all
+
+    s3 = _s3_client(config)
+    deleted = []
+
+    try:
+        if to_delete is None:  # delete all
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    name = key[len(prefix):] if key.startswith(prefix) else key
+                    if name.endswith(".sql") and "/" not in name:
+                        s3.delete_object(Bucket=bucket, Key=key)
+                        deleted.append(name)
+        else:
+            for name in to_delete:
+                key = prefix + name
+                s3.delete_object(Bucket=bucket, Key=key)
+                deleted.append(name)
+
+        return jsonify({"success": True, "deleted": deleted})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
 
 
 if __name__ == "__main__":

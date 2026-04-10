@@ -785,3 +785,79 @@ tbody tr:hover td {
   color: var(--text3);
   margin-bottom: 10px;
 }
+
+.ver-list {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ver-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.ver-item:hover {
+  border-color: var(--accent);
+  background: rgba(100, 200, 255, 0.05);
+}
+
+.ver-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+}
+
+.ver-chip-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.chip-v {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 60px;
+}
+
+.chip-d {
+  color: var(--text2);
+  font-size: 13px;
+}
+
+.latest-btn {
+  color: var(--blue);
+  font-weight: 500;
+}
+
+.latest-btn .chip-v {
+  color: var(--blue);
+}
+
+#delete-toolbar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#delete-toolbar .btn {
+  min-width: auto;
+  font-size: 13px;
+  padding: 6px 12px;
+}
+
+@media (max-width: 1100px) {
+  #delete-toolbar .btn {
+    padding: 5px 10px;
+    font-size: 12.5px;
+  }
+}
