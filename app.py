@@ -1,6 +1,8 @@
 import os
 import re
 import uuid
+import shutil
+import tempfile
 import subprocess
 import threading
 import logging
@@ -37,9 +39,9 @@ def get_db_config() -> dict:
         "password":       session.get("db_password")     or os.environ.get("DB_PASSWORD", ""),
         "schema":         session.get("db_schema")       or os.environ.get("DB_SCHEMA", "public"),
         "sql_dir":        session.get("sql_dir")         or os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
-        "env_label":      os.environ.get("APP_ENV", "local"),
         # env mode (local vs prod) — drives UI visibility
         "env_mode":   session.get("env_mode")  or os.environ.get("APP_ENV", "local"),
+        "env_label":  session.get("env_mode")  or os.environ.get("APP_ENV", "local"),
         # S3 — PROD only, credentials via IAM role
         "s3_bucket":  session.get("s3_bucket") or os.environ.get("S3_BUCKET", ""),
         "s3_region":  session.get("s3_region") or os.environ.get("S3_REGION", "ap-northeast-1"),
@@ -103,7 +105,7 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
 
     sql_files = list(sql_dir.glob("*.sql")) if sql_dir.exists() else []
     if not sql_files:
-        log("ERROR", "No .sql files found. Upload files first.")
+        log("ERROR", "No .sql files found in volume. Upload files first.")
         with executions_lock:
             executions[execution_id].update({
                 "status": "FAILED",
@@ -112,26 +114,49 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
             })
         return
 
+    # For single-version run: copy only the matching file to a temp dir
+    tmp_dir = None
+    effective_dir = sql_dir
+    out_of_order = "false"
+
+    if target_version and target_version.lower() != "latest":
+        target_up = target_version.upper()
+        matching = [f for f in sql_files
+                    if (parse_filename(f.name) or {}).get("version", "").upper() == target_up]
+        if not matching:
+            log("ERROR", f"No SQL file found for version {target_version} in volume.")
+            with executions_lock:
+                executions[execution_id].update({
+                    "status": "FAILED",
+                    "finishedAt": datetime.utcnow().isoformat() + "Z",
+                    "errorMessage": f"No SQL file found for {target_version}.",
+                })
+            return
+        tmp_dir = tempfile.mkdtemp(prefix="flyway-single-")
+        shutil.copy2(str(matching[0]), tmp_dir)
+        effective_dir = Path(tmp_dir)
+        out_of_order = "true"
+        log("INFO", f"Single migration : {matching[0].name}")
+    else:
+        log("INFO", f"SQL files : {', '.join(f.name for f in sql_files)}")
+
     log("INFO", f"JDBC URL  : {jdbc_url}")
-    log("INFO", f"SQL files : {', '.join(f.name for f in sql_files)}")
-    log("INFO", f"SQL dir   : {sql_dir}")
+    log("INFO", f"SQL dir   : {effective_dir}")
 
     cmd = [
         "flyway",
         f"-url={jdbc_url}",
         f"-user={config['username']}",
         f"-password={config['password']}",
-        f"-locations=filesystem:{sql_dir}",
+        f"-locations=filesystem:{effective_dir}",
         "-validateOnMigrate=true",
         "-ignoreMigrationPatterns=*:Missing",
         "-baselineOnMigrate=true",
-        "-outOfOrder=false",
+        f"-outOfOrder={out_of_order}",
+        "migrate",
     ]
-    if target_version and target_version.lower() != "latest":
-        cmd.append(f"-target={target_version.lstrip('V')}")
-    cmd.append("migrate")
 
-    log("INFO", "Launching Flyway container...")
+    log("INFO", "Launching Flyway...")
 
     try:
         proc = subprocess.Popen(
@@ -168,9 +193,9 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
         with executions_lock:
             executions[execution_id].update({
                 "status": "FAILED", "finishedAt": datetime.utcnow().isoformat() + "Z",
-                "errorMessage": "docker not found",
+                "errorMessage": "flyway not found",
             })
-        log("ERROR", "Cannot find `docker`. Ensure Docker is running and socket is mounted.")
+        log("ERROR", "Cannot find `flyway`. Ensure it is installed and in PATH.")
     except Exception as e:
         with executions_lock:
             executions[execution_id].update({
@@ -178,6 +203,9 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
                 "errorMessage": str(e),
             })
         log("ERROR", f"Unexpected error: {e}")
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ── Page Routes ───────────────────────────────────────────────────────────────
@@ -533,6 +561,45 @@ def api_delete_files():
                     pass
 
     return jsonify({"success": True, "deleted": deleted})
+
+
+@app.route("/api/s3/download", methods=["POST"])
+def api_s3_download():
+    """Download files from S3 to local volume."""
+    config = get_db_config()
+    bucket = config["s3_bucket"]
+    prefix = config["s3_prefix"].rstrip("/") + "/" if config["s3_prefix"] else ""
+    if not bucket:
+        return jsonify({"success": False, "message": "S3 bucket not configured."})
+
+    d = request.get_json() or {}
+    selected = d.get("files")  # None = download all
+
+    sql_dir = Path(config["sql_dir"])
+    sql_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        s3 = _s3_client(config)
+        downloaded = []
+
+        if selected is None:
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    key  = obj["Key"]
+                    name = key[len(prefix):] if key.startswith(prefix) else key
+                    if name.endswith(".sql") and "/" not in name:
+                        s3.download_file(bucket, key, str(sql_dir / name))
+                        downloaded.append(name)
+        else:
+            for name in selected:
+                key = prefix + name
+                s3.download_file(bucket, key, str(sql_dir / name))
+                downloaded.append(name)
+
+        return jsonify({"success": True, "downloaded": downloaded})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
 
 
 @app.route("/api/s3/delete", methods=["POST"])
