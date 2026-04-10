@@ -4,8 +4,6 @@ CREATE TABLE public."__EFMigrationsHistory" (
 );
 
 
-ALTER TABLE public."__EFMigrationsHistory" OWNER TO jinzaicompass;
-
 --
 -- Name: certifications; Type: TABLE; Schema: public; Owner: jinzaicompass
 --
@@ -19,8 +17,6 @@ CREATE TABLE public.certifications (
     delete_flag boolean
 );
 
-
-ALTER TABLE public.certifications OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN certifications.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -60,8 +56,6 @@ CREATE TABLE public.companies (
 );
 
 
-ALTER TABLE public.companies OWNER TO jinzaicompass;
-
 --
 -- Name: companies_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -89,8 +83,6 @@ CREATE TABLE public.company_awards (
     delete_flag boolean
 );
 
-
-ALTER TABLE public.company_awards OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN company_awards.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -128,8 +120,6 @@ CREATE TABLE public.departments (
     delete_flag boolean
 );
 
-
-ALTER TABLE public.departments OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN departments.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -169,8 +159,6 @@ CREATE TABLE public.divisions (
 );
 
 
-ALTER TABLE public.divisions OWNER TO jinzaicompass;
-
 --
 -- Name: COLUMN divisions.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
 --
@@ -204,8 +192,6 @@ CREATE TABLE public.employment_status (
 );
 
 
-ALTER TABLE public.employment_status OWNER TO jinzaicompass;
-
 --
 -- Name: employment_status_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -233,8 +219,6 @@ CREATE TABLE public.employment_types (
     delete_flag boolean
 );
 
-
-ALTER TABLE public.employment_types OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN employment_types.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -274,8 +258,6 @@ CREATE TABLE public.experience_areas (
 );
 
 
-ALTER TABLE public.experience_areas OWNER TO jinzaicompass;
-
 --
 -- Name: COLUMN experience_areas.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
 --
@@ -314,8 +296,6 @@ CREATE TABLE public.experience_fields (
 );
 
 
-ALTER TABLE public.experience_fields OWNER TO jinzaicompass;
-
 --
 -- Name: COLUMN experience_fields.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
 --
@@ -353,8 +333,6 @@ CREATE TABLE public.experience_jobs (
 );
 
 
-ALTER TABLE public.experience_jobs OWNER TO jinzaicompass;
-
 --
 -- Name: COLUMN experience_jobs.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
 --
@@ -388,8 +366,6 @@ CREATE TABLE public.genders (
 );
 
 
-ALTER TABLE public.genders OWNER TO jinzaicompass;
-
 --
 -- Name: genders_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -419,8 +395,6 @@ CREATE TABLE public.groups (
     delete_flag boolean
 );
 
-
-ALTER TABLE public.groups OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN groups.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -461,8 +435,6 @@ CREATE TABLE public.monitoring_systems (
 );
 
 
-ALTER TABLE public.monitoring_systems OWNER TO jinzaicompass;
-
 --
 -- Name: monitoring_systems_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -492,8 +464,6 @@ CREATE TABLE public.notifications (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.notifications OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN notifications.is_read; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -532,8 +502,6 @@ CREATE TABLE public.participation_positions (
 );
 
 
-ALTER TABLE public.participation_positions OWNER TO jinzaicompass;
-
 --
 -- Name: COLUMN participation_positions.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
 --
@@ -570,8 +538,6 @@ CREATE TABLE public.participation_processes (
     delete_flag boolean
 );
 
-
-ALTER TABLE public.participation_processes OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN participation_processes.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -612,8 +578,6 @@ CREATE TABLE public.plan_conditions (
 );
 
 
-ALTER TABLE public.plan_conditions OWNER TO jinzaicompass;
-
 --
 -- Name: plan_conditions_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -649,8 +613,6 @@ CREATE TABLE public.plans (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.plans OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN plans.status; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -691,8 +653,6 @@ CREATE TABLE public.positions (
 );
 
 
-ALTER TABLE public.positions OWNER TO jinzaicompass;
-
 --
 -- Name: COLUMN positions.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
 --
@@ -730,7 +690,6 @@ CREATE TABLE public.project_experience_area (
 );
 
 
-ALTER TABLE public.project_experience_area OWNER TO jinzaicompass;
 
 --
 -- Name: project_experience_area_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
@@ -760,8 +719,6 @@ CREATE TABLE public.project_experience_field (
 );
 
 
-ALTER TABLE public.project_experience_field OWNER TO jinzaicompass;
-
 --
 -- Name: project_experience_field_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -789,8 +746,6 @@ CREATE TABLE public.project_experience_job (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.project_experience_job OWNER TO jinzaicompass;
 
 --
 -- Name: project_experience_job_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
@@ -820,8 +775,6 @@ CREATE TABLE public.project_participation_position (
 );
 
 
-ALTER TABLE public.project_participation_position OWNER TO jinzaicompass;
-
 --
 -- Name: project_participation_position_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -850,8 +803,6 @@ CREATE TABLE public.project_participation_process (
 );
 
 
-ALTER TABLE public.project_participation_process OWNER TO jinzaicompass;
-
 --
 -- Name: project_participation_process_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -879,8 +830,6 @@ CREATE TABLE public.project_specific_skill (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.project_specific_skill OWNER TO jinzaicompass;
 
 --
 -- Name: project_specific_skill_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
@@ -915,8 +864,6 @@ CREATE TABLE public.projects (
 );
 
 
-ALTER TABLE public.projects OWNER TO jinzaicompass;
-
 --
 -- Name: projects_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -944,8 +891,6 @@ CREATE TABLE public.report_departments (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.report_departments OWNER TO jinzaicompass;
 
 --
 -- Name: report_departments_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
@@ -975,8 +920,6 @@ CREATE TABLE public.report_divisions (
 );
 
 
-ALTER TABLE public.report_divisions OWNER TO jinzaicompass;
-
 --
 -- Name: report_divisions_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1005,8 +948,6 @@ CREATE TABLE public.report_groups (
 );
 
 
-ALTER TABLE public.report_groups OWNER TO jinzaicompass;
-
 --
 -- Name: report_groups_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1034,8 +975,6 @@ CREATE TABLE public.report_types (
     delete_flag boolean
 );
 
-
-ALTER TABLE public.report_types OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN report_types.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -1074,8 +1013,6 @@ CREATE TABLE public.report_users (
 );
 
 
-ALTER TABLE public.report_users OWNER TO jinzaicompass;
-
 --
 -- Name: report_users_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1108,8 +1045,6 @@ CREATE TABLE public.reports (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.reports OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN reports.is_public; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -1144,8 +1079,6 @@ CREATE TABLE public.roles (
 );
 
 
-ALTER TABLE public.roles OWNER TO jinzaicompass;
-
 --
 -- Name: roles_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1177,8 +1110,6 @@ CREATE TABLE public.settings (
 );
 
 
-ALTER TABLE public.settings OWNER TO jinzaicompass;
-
 --
 -- Name: settings_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1207,8 +1138,6 @@ CREATE TABLE public.specific_skills (
     delete_flag boolean
 );
 
-
-ALTER TABLE public.specific_skills OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN specific_skills.delete_flag; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -1261,8 +1190,6 @@ CREATE TABLE public.tenants (
 );
 
 
-ALTER TABLE public.tenants OWNER TO jinzaicompass;
-
 --
 -- Name: COLUMN tenants.status; Type: COMMENT; Schema: public; Owner: jinzaicompass
 --
@@ -1305,8 +1232,6 @@ CREATE TABLE public.user_certification (
 );
 
 
-ALTER TABLE public.user_certification OWNER TO jinzaicompass;
-
 --
 -- Name: user_certification_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1336,8 +1261,6 @@ CREATE TABLE public.user_company_award (
 );
 
 
-ALTER TABLE public.user_company_award OWNER TO jinzaicompass;
-
 --
 -- Name: user_company_award_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1365,8 +1288,6 @@ CREATE TABLE public.user_experience_area (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.user_experience_area OWNER TO jinzaicompass;
 
 --
 -- Name: user_experience_area_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
@@ -1396,8 +1317,6 @@ CREATE TABLE public.user_experience_field (
 );
 
 
-ALTER TABLE public.user_experience_field OWNER TO jinzaicompass;
-
 --
 -- Name: user_experience_field_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1426,8 +1345,6 @@ CREATE TABLE public.user_experience_job (
 );
 
 
-ALTER TABLE public.user_experience_job OWNER TO jinzaicompass;
-
 --
 -- Name: user_experience_job_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1453,8 +1370,6 @@ CREATE TABLE public.user_plan (
     plan_id bigint NOT NULL
 );
 
-
-ALTER TABLE public.user_plan OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN user_plan.status; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -1483,8 +1398,6 @@ CREATE TABLE public.user_plan_activity (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.user_plan_activity OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN user_plan_activity.status; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -1524,8 +1437,6 @@ CREATE TABLE public.user_plan_condition (
 );
 
 
-ALTER TABLE public.user_plan_condition OWNER TO jinzaicompass;
-
 --
 -- Name: COLUMN user_plan_condition.status; Type: COMMENT; Schema: public; Owner: jinzaicompass
 --
@@ -1555,8 +1466,6 @@ CREATE TABLE public.user_plan_condition_activity (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.user_plan_condition_activity OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN user_plan_condition_activity.status; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -1625,8 +1534,6 @@ CREATE TABLE public.user_specific_skill (
 );
 
 
-ALTER TABLE public.user_specific_skill OWNER TO jinzaicompass;
-
 --
 -- Name: user_specific_skill_id_seq; Type: SEQUENCE; Schema: public; Owner: jinzaicompass
 --
@@ -1655,8 +1562,6 @@ CREATE TABLE public.user_status_history (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.user_status_history OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN user_status_history.type; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -1719,8 +1624,6 @@ CREATE TABLE public.users (
     updated_at timestamp without time zone
 );
 
-
-ALTER TABLE public.users OWNER TO jinzaicompass;
 
 --
 -- Name: COLUMN users.role_id; Type: COMMENT; Schema: public; Owner: jinzaicompass
@@ -3844,11 +3747,3 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT "FK_users_tenants_tenant_id" FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE;
-
-
---
--- PostgreSQL database dump complete
---
-
-\unrestrict 6gtB7uJVa8DT38lzD0UkQZPsrN4jiZAZJg3rDMoqc4ldAauUGfLCA1RjgjvjQ0q
-
