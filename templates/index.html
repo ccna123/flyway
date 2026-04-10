@@ -253,7 +253,6 @@
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: 8px;
-          display: flex;
           align-items: center;
           gap: 10px;
           flex-wrap: wrap;
@@ -684,54 +683,6 @@
         }
       }
 
-      function renderVersionChips() {
-    const el = document.getElementById("ver-list");
-    const toolbar = document.getElementById("delete-toolbar");
-
-    if (!cachedVersionFiles.length) {
-      const src = IS_PROD && S3_CONFIGURED ? "in S3" : "in container volume";
-      el.innerHTML = `<div style="padding:40px 20px; text-align:center; color:var(--text3); font-size:13px;">
-        No SQL files found ${src}
-      </div>`;
-      toolbar.style.display = "none";
-      return;
-    }
-
-    toolbar.style.display = "flex";
-
-    const seen = new Map();
-    cachedVersionFiles.forEach(f => {
-      if (!seen.has(f.parsed.version)) seen.set(f.parsed.version, f.parsed);
-    });
-
-    const unique = [...seen.values()].sort((a, b) => {
-      const ra = (a.raw_version || a.raw || "").replace(/_/g, '.');
-      const rb = (b.raw_version || b.raw || "").replace(/_/g, '.');
-      return ra.localeCompare(rb, undefined, { numeric: true });
-    });
-
-    let html = unique.map(p => `
-      <label class="ver-item">
-        <input type="checkbox" class="ver-delete-cb" value="${p.version}"
-               onchange="toggleDeleteSelect(this)">
-        <span class="ver-chip-content">
-          <span class="chip-v">${p.version}</span>
-          <span class="chip-d">${p.description || ""}</span>
-        </span>
-      </label>`).join("");
-
-    // Latest option
-    html += `
-      <button class="ver-item latest-btn ${state.selectedVersion === "latest" ? "sel" : ""}"
-              onclick="selectVersion('latest')">
-        <span class="chip-v latest">latest</span>
-        <span class="chip-d">migrate all pending</span>
-      </button>`;
-
-    el.innerHTML = html;
-  }
-
-
       function selectVersion(v) {
         state.selectedVersion = v;
         renderVersionChips();
@@ -801,6 +752,8 @@
 
     function renderVersionChips() {
       const el = document.getElementById("ver-list");
+      selectedForDelete.clear();
+
       if (!cachedVersionFiles.length) {
         const src = IS_PROD && S3_CONFIGURED ? "in S3" : "in container volume";
         el.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:16px 0;text-align:center;">No SQL files found ${src}</div>`;
@@ -822,12 +775,13 @@
       });
 
       let html = unique.map(p => `
-        <label class="ver-chip ${state.selectedVersion === p.version ? "sel" : ""}" style="cursor:pointer; user-select:none">
+        <div class="ver-chip ${state.selectedVersion === p.version ? "sel" : ""}" onclick="selectVersion('${p.version}')" style="cursor:pointer; user-select:none">
           <input type="checkbox" class="ver-delete-cb" value="${p.version}"
+                 onclick="event.stopPropagation()"
                  onchange="toggleDeleteSelect(this)" style="margin-right:8px; accent-color:var(--red)">
           <span class="chip-v">${p.version}</span>
           <span class="chip-d">${p.description || ""}</span>
-        </label>`).join("");
+        </div>`).join("");
 
       html += `
         <button class="ver-chip latest ${state.selectedVersion === "latest" ? "sel" : ""}" onclick="selectVersion('latest')">
