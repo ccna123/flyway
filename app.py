@@ -29,33 +29,52 @@ executions_lock = threading.Lock()
 # ── Config ────────────────────────────────────────────────────────────────────
 
 def get_db_config() -> dict:
-    """Session overrides ENV vars — UI settings take priority."""
+    """Session overrides ENV vars — UI settings take priority.
+    env_mode is determined solely by RELEASE env var — no UI toggle.
+    """
+    release  = os.environ.get("RELEASE", "true").lower() not in ("false", "0", "no")
+    env_mode = "prod" if release else os.environ.get("APP_ENV", "local")
+
+    staging_host = session.get("staging_db_host", "").strip()
+
     return {
-        "db_type":        session.get("db_type")        or os.environ.get("DB_TYPE", "postgresql"),
-        "host":           session.get("db_host")         or os.environ.get("DB_HOST", ""),
-        "port":           session.get("db_port")         or os.environ.get("DB_PORT", "5432"),
-        "database":       session.get("db_name")         or os.environ.get("DB_NAME", ""),
-        "username":       session.get("db_user")         or os.environ.get("DB_USER", ""),
-        "password":       session.get("db_password")     or os.environ.get("DB_PASSWORD", ""),
-        "schema":         session.get("db_schema")       or os.environ.get("DB_SCHEMA", "public"),
-        "sql_dir":        session.get("sql_dir")         or os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
-        # env mode (local vs prod) — drives UI visibility
-        "env_mode":   session.get("env_mode")  or os.environ.get("APP_ENV", "local"),
-        "env_label":  session.get("env_mode")  or os.environ.get("APP_ENV", "local"),
-        # S3 — PROD only, credentials via IAM role
+        "db_type":    session.get("db_type")    or os.environ.get("DB_TYPE", "postgresql"),
+        "host":       session.get("db_host")     or os.environ.get("DB_HOST", ""),
+        "port":       session.get("db_port")     or os.environ.get("DB_PORT", "5432"),
+        "database":   session.get("db_name")     or os.environ.get("DB_NAME", ""),
+        "username":   session.get("db_user")     or os.environ.get("DB_USER", ""),
+        "password":   session.get("db_password") or os.environ.get("DB_PASSWORD", ""),
+        "schema":     session.get("db_schema")   or os.environ.get("DB_SCHEMA", "public"),
+        "sql_dir":    session.get("sql_dir")     or os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
+        "env_mode":   env_mode,
+        "env_label":  env_mode,
+        "release":    release,
+        # S3
         "s3_bucket":  session.get("s3_bucket") or os.environ.get("S3_BUCKET", ""),
         "s3_region":  session.get("s3_region") or os.environ.get("S3_REGION", "ap-northeast-1"),
         "s3_prefix":  session.get("s3_prefix") or os.environ.get("S3_PREFIX", "flyway/"),
+        # Staging / test DB
+        "staging_configured": bool(staging_host),
+        "staging_host":       staging_host,
+        "staging_db_name":    session.get("staging_db_name", ""),
     }
 
 
 def save_db_config(form):
     field_map = {
+        # Primary DB
         "db_type": "db_type", "host": "db_host", "port": "db_port",
         "database": "db_name", "username": "db_user", "password": "db_password",
         "schema": "db_schema", "sql_dir": "sql_dir",
-        "env_mode": "env_mode",
+        # S3
         "s3_bucket": "s3_bucket", "s3_region": "s3_region", "s3_prefix": "s3_prefix",
+        # Staging / test DB
+        "staging_host":     "staging_db_host",
+        "staging_port":     "staging_db_port",
+        "staging_name":     "staging_db_name",
+        "staging_user":     "staging_db_user",
+        "staging_password": "staging_db_password",
+        "staging_schema":   "staging_db_schema",
     }
     for form_key, session_key in field_map.items():
         val = form.get(form_key, "").strip()
@@ -71,6 +90,111 @@ def parse_filename(filename: str):
     version = m.group(1).replace("_", ".")
     description = m.group(2).replace("_", " ")
     return {"version": f"V{version}", "raw_version": version, "description": description}
+
+
+def get_staging_config() -> dict | None:
+    """Returns staging DB config merged from session, or None if not configured."""
+    host = session.get("staging_db_host", "").strip()
+    if not host:
+        return None
+    base = get_db_config()
+    return {
+        **base,
+        "host":     host,
+        "port":     session.get("staging_db_port") or base["port"],
+        "database": session.get("staging_db_name") or base["database"],
+        "username": session.get("staging_db_user") or base["username"],
+        "password": session.get("staging_db_password") or base["password"],
+        "schema":   session.get("staging_db_schema") or base["schema"],
+        "is_staging": True,
+    }
+
+
+# ── Post-migration verification helpers ───────────────────────────────────────
+
+def _schema_snapshot(config: dict) -> dict:
+    """Capture tables + columns from information_schema."""
+    try:
+        conn = _pg_conn(config)
+        cur  = conn.cursor()
+        sch  = config.get("schema", "public")
+        cur.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema=%s AND table_type='BASE TABLE' ORDER BY table_name",
+            (sch,),
+        )
+        tables = [r[0] for r in cur.fetchall()]
+        cur.execute(
+            "SELECT table_name, column_name, data_type "
+            "FROM information_schema.columns WHERE table_schema=%s "
+            "ORDER BY table_name, ordinal_position",
+            (sch,),
+        )
+        columns: dict = {}
+        for tbl, col, dtype in cur.fetchall():
+            columns.setdefault(tbl, []).append({"name": col, "type": dtype})
+        cur.close(); conn.close()
+        return {"tables": tables, "columns": columns, "error": None}
+    except Exception as e:
+        return {"tables": [], "columns": {}, "error": str(e)}
+
+
+def _diff_schemas(before: dict, after: dict) -> dict:
+    """Compute structural diff between two schema snapshots."""
+    if before.get("error") or after.get("error"):
+        return {"error": before.get("error") or after.get("error")}
+    b_set = set(before["tables"]); a_set = set(after["tables"])
+    added   = sorted(a_set - b_set)
+    removed = sorted(b_set - a_set)
+    modified: dict = {}
+    for tbl in b_set & a_set:
+        b_cols = {c["name"] for c in before["columns"].get(tbl, [])}
+        a_cols = {c["name"] for c in after["columns"].get(tbl, [])}
+        add_c = sorted(a_cols - b_cols); rem_c = sorted(b_cols - a_cols)
+        if add_c or rem_c:
+            modified[tbl] = {"added": add_c, "removed": rem_c}
+    return {
+        "added_tables":    added,
+        "removed_tables":  removed,
+        "modified_tables": modified,
+        "unchanged_count": len(b_set & a_set) - len(modified),
+    }
+
+
+def _db_health(config: dict) -> dict:
+    """Quick connectivity + version check."""
+    try:
+        conn = _pg_conn(config)
+        cur  = conn.cursor()
+        cur.execute("SELECT version()")
+        ver = cur.fetchone()[0].split(",")[0]
+        cur.close(); conn.close()
+        return {"ok": True, "message": ver}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+def _flyway_history(config: dict, limit: int = 5) -> list:
+    """Query flyway_schema_history for recent applied migrations."""
+    try:
+        conn = _pg_conn(config)
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT version, description, success, execution_time, installed_on "
+            "FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT %s",
+            (limit,),
+        )
+        cols = [d[0] for d in cur.description]
+        rows = []
+        for r in cur.fetchall():
+            row = dict(zip(cols, r))
+            if row.get("installed_on"):
+                row["installed_on"] = row["installed_on"].isoformat()
+            rows.append(row)
+        cur.close(); conn.close()
+        return rows
+    except Exception:
+        return []
 
 
 def test_pg_connection(host, port, database, username, password, schema):
@@ -113,6 +237,9 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
                 "errorMessage": "No SQL files found.",
             })
         return
+
+    # Capture schema state before migration (for post-migration diff)
+    schema_before = _schema_snapshot(config)
 
     # For single-version run: copy only the matching file to a temp dir
     tmp_dir = None
@@ -178,9 +305,21 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
         proc.wait()
         finished = datetime.utcnow().isoformat() + "Z"
         if proc.returncode == 0:
-            with executions_lock:
-                executions[execution_id].update({"status": "SUCCESS", "finishedAt": finished})
             log("SUCCESS", "Migration completed successfully.")
+            # Run verification before marking done so UI gets it atomically
+            log("INFO", "Verifying database state…")
+            schema_after = _schema_snapshot(config)
+            verification = {
+                "health":         _db_health(config),
+                "schema_diff":    _diff_schemas(schema_before, schema_after),
+                "recent_history": _flyway_history(config, limit=5),
+            }
+            with executions_lock:
+                executions[execution_id].update({
+                    "status": "SUCCESS",
+                    "finishedAt": finished,
+                    "verification": verification,
+                })
         else:
             with executions_lock:
                 executions[execution_id].update({
@@ -306,6 +445,8 @@ def api_migrate():
         "finishedAt": None,
         "logs": [],
         "errorMessage": None,
+        "verification": None,
+        "is_staging": False,
     }
     with executions_lock:
         executions[exec_id] = record
@@ -316,6 +457,39 @@ def api_migrate():
     thread.start()
 
     return jsonify({"executionId": exec_id, "status": "RUNNING"})
+
+
+@app.route("/api/migrate/staging", methods=["POST"])
+def api_migrate_staging():
+    """Run migration against the configured staging/test DB."""
+    staging = get_staging_config()
+    if not staging:
+        return jsonify({"success": False, "message": "Test DB not configured in Settings."}), 400
+
+    d = request.get_json() or {}
+    target_version = d.get("version")
+
+    exec_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat() + "Z"
+    record = {
+        "executionId": exec_id,
+        "version": target_version or "latest",
+        "status": "RUNNING",
+        "startedAt": now,
+        "finishedAt": None,
+        "logs": [],
+        "errorMessage": None,
+        "verification": None,
+        "is_staging": True,
+    }
+    with executions_lock:
+        executions[exec_id] = record
+
+    thread = threading.Thread(
+        target=run_flyway_async, args=(exec_id, staging, target_version), daemon=True
+    )
+    thread.start()
+    return jsonify({"executionId": exec_id, "status": "RUNNING", "is_staging": True})
 
 
 @app.route("/api/migrate/status/<execution_id>", methods=["GET"])
@@ -375,7 +549,9 @@ def api_s3_files():
                     files.append({"filename": name, "size": obj["Size"],
                                   "parsed": parse_filename(name), "s3_key": key})
         files.sort(key=lambda x: x["filename"])
-        return jsonify({"files": files})
+        parsed = [f for f in files if f.get("parsed")]
+        latest_version = parsed[-1]["parsed"]["version"] if parsed else None
+        return jsonify({"files": files, "latest_version": latest_version})
     except Exception as e:
         return jsonify({"files": [], "error": str(e)})
 

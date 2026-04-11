@@ -280,6 +280,139 @@ async function doS3Upload(mode) {
   }
 }
 
+/* ── Staging test ── */
+let stagingState = { running: false, executionId: null, pollTimer: null };
+
+function initStagingSection() {
+  if (!STAGING_CONFIGURED) return;
+  const sec = document.getElementById("staging-section");
+  if (sec) {
+    sec.style.display = "block";
+    const label = document.getElementById("staging-db-label");
+    if (label) label.textContent = STAGING_HOST + (STAGING_DB ? " / " + STAGING_DB : "");
+  }
+}
+
+async function runStagingTest() {
+  if (stagingState.running || !state.selectedVersion) return;
+  stagingState.running = true;
+  const btn    = document.getElementById("btn-staging");
+  const result = document.getElementById("staging-run-result");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner" style="width:11px;height:11px"></span> Testing…`;
+  result.style.display = "none";
+
+  try {
+    const res  = await fetch("/api/migrate/staging", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: state.selectedVersion }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.executionId) {
+      showStagingResult(false, data.message || "Failed to start staging test");
+      return;
+    }
+    stagingState.executionId = data.executionId;
+    stagingState.pollTimer   = setInterval(pollStaging, 3000);
+    pollStaging();
+  } catch (e) {
+    showStagingResult(false, e.message);
+  }
+}
+
+async function pollStaging() {
+  try {
+    const res  = await fetch(`/api/migrate/status/${stagingState.executionId}`);
+    const data = await res.json();
+    if (data.status === "SUCCESS") {
+      clearInterval(stagingState.pollTimer);
+      stagingState.running = false;
+      showStagingResult(true, "Test DB migration succeeded");
+      resetStagingBtn();
+    } else if (data.status === "FAILED") {
+      clearInterval(stagingState.pollTimer);
+      stagingState.running = false;
+      showStagingResult(false, data.errorMessage || "Staging migration failed");
+      resetStagingBtn();
+    }
+  } catch (e) { console.error("staging poll", e); }
+}
+
+function showStagingResult(ok, msg) {
+  const result = document.getElementById("staging-run-result");
+  result.style.display = "block";
+  result.style.color   = ok ? "var(--accent)" : "var(--red)";
+  result.textContent   = (ok ? "✓ " : "✗ ") + msg;
+}
+
+function resetStagingBtn() {
+  const btn = document.getElementById("btn-staging");
+  btn.disabled = false;
+  btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg> Run on Test DB`;
+}
+
+/* ── Post-migration verification render ── */
+function renderVerification(v) {
+  const wrap  = document.getElementById("verify-wrap");
+  const panel = document.getElementById("verify-panel");
+  if (!wrap || !panel || !v) return;
+  wrap.style.display = "block";
+
+  const health  = v.health        || {};
+  const diff    = v.schema_diff   || {};
+  const history = v.recent_history || [];
+
+  const healthOk = health.ok !== false;
+  let html = `<div style="padding:12px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)">
+    <span style="color:${healthOk ? "var(--accent)" : "var(--red)"};font-size:16px">${healthOk ? "✓" : "✗"}</span>
+    <span style="font-size:12px;font-weight:600;color:var(--text2)">DB Health</span>
+    <span style="font-size:11px;font-family:var(--mono);color:var(--text3);margin-left:4px">${escHtml(health.message || "")}</span>
+  </div>`;
+
+  // Schema diff
+  if (!diff.error) {
+    const added    = diff.added_tables    || [];
+    const removed  = diff.removed_tables  || [];
+    const modified = diff.modified_tables || {};
+    const unch     = diff.unchanged_count || 0;
+    const hasChange = added.length || removed.length || Object.keys(modified).length;
+    html += `<div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+      <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Schema Changes</div>`;
+    if (!hasChange) {
+      html += `<div style="font-size:12px;color:var(--text3);font-family:var(--mono)">No schema changes detected</div>`;
+    } else {
+      added.forEach(t   => { html += `<div style="font-size:12px;font-family:var(--mono);color:var(--accent);padding:2px 0">+ ${escHtml(t)} <span style="font-size:10px;color:var(--text3)">new table</span></div>`; });
+      removed.forEach(t => { html += `<div style="font-size:12px;font-family:var(--mono);color:var(--red);padding:2px 0">− ${escHtml(t)} <span style="font-size:10px;color:var(--text3)">dropped</span></div>`; });
+      Object.entries(modified).forEach(([tbl, ch]) => {
+        const parts = [];
+        if (ch.added.length)   parts.push(`+${ch.added.length} col`);
+        if (ch.removed.length) parts.push(`−${ch.removed.length} col`);
+        html += `<div style="font-size:12px;font-family:var(--mono);color:var(--amber);padding:2px 0">~ ${escHtml(tbl)} <span style="font-size:10px;color:var(--text3)">${parts.join(", ")}: ${escHtml([...ch.added,...ch.removed].join(", "))}</span></div>`;
+      });
+      if (unch > 0) html += `<div style="font-size:11px;color:var(--text3);margin-top:4px">${unch} table(s) unchanged</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Recent history
+  if (history.length) {
+    html += `<div style="padding:12px 16px">
+      <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Recent Migrations</div>`;
+    history.forEach(h => {
+      const ok = h.success !== false;
+      html += `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px">
+        <span style="color:${ok ? "var(--accent)" : "var(--red)"}">${ok ? "✓" : "✗"}</span>
+        <span style="font-family:var(--mono);color:var(--blue);min-width:36px">V${escHtml(String(h.version||"?"))}</span>
+        <span style="color:var(--text2);flex:1">${escHtml(h.description||"")}</span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text3)">${h.execution_time||""}ms</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  panel.innerHTML = html;
+}
+
 /* ── Run ── */
 function updateRunBtn() {
   document.getElementById("btn-run").disabled = !state.selectedVersion || state.running;
@@ -328,12 +461,12 @@ async function poll() {
     const res  = await fetch(`/api/migrate/status/${state.executionId}`);
     const data = await res.json();
     if (data.logs) setLog(data.logs);
-    if (data.status === "SUCCESS") { clearInterval(state.pollTimer); onDone(true); }
-    else if (data.status === "FAILED") { clearInterval(state.pollTimer); onDone(false, data.errorMessage); }
+    if (data.status === "SUCCESS") { clearInterval(state.pollTimer); onDone(true, null, data.verification); }
+    else if (data.status === "FAILED") { clearInterval(state.pollTimer); onDone(false, data.errorMessage, null); }
   } catch (e) { console.error("poll error", e); }
 }
 
-function onDone(ok, errMsg) {
+function onDone(ok, errMsg, verification) {
   state.running = false;
   const btn = document.getElementById("btn-run");
   btn.classList.remove("running");
@@ -342,6 +475,7 @@ function onDone(ok, errMsg) {
     btn.style.background = "var(--accent-d)";
     btn.style.color      = "var(--accent)";
     btn.style.borderColor = "var(--accent-b)";
+    renderVerification(verification);
   } else {
     btn.classList.add("failed");
     btn.innerHTML = `↺ Retry Migration`;
@@ -442,8 +576,16 @@ async function loadS3Files() {
       listEl.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:12px 0;text-align:center;">No SQL files on S3</div>';
       return;
     }
+    // Latest version banner
+    const bannerEl = document.getElementById("s3-latest-banner");
+    if (bannerEl && data.latest_version) {
+      const next = "V" + (parseInt(data.latest_version.replace(/\D/g, ""), 10) + 1) + "__description.sql";
+      bannerEl.innerHTML = `<span style="color:var(--blue);font-weight:600">Latest on S3: ${escHtml(data.latest_version)}</span>
+        <span style="color:var(--text3);margin-left:12px">· Next file should be: <span style="font-family:var(--mono);color:var(--text2)">${escHtml(next)}</span></span>`;
+      bannerEl.style.display = "block";
+    }
     listEl.innerHTML = data.files.map(f => `
-      <div class="ver-chip" onclick="toggleS3Select(event, '${escHtml(f.filename)}')" style="cursor:pointer;user-select:none">
+      <div class="ver-chip" onclick="toggleS3Select(event)" style="cursor:pointer;user-select:none">
         <input type="checkbox" class="s3-file-cb" value="${escHtml(f.filename)}"
                onchange="onS3CbChange(this)" style="margin-right:8px;accent-color:var(--blue)">
         <span class="chip-v" style="color:var(--blue)">${escHtml(f.parsed ? f.parsed.version : f.filename)}</span>
@@ -455,7 +597,7 @@ async function loadS3Files() {
   }
 }
 
-function toggleS3Select(event, filename) {
+function toggleS3Select(event) {
   const cb = event.currentTarget.querySelector('.s3-file-cb');
   if (event.target !== cb) {
     cb.checked = !cb.checked;
@@ -502,3 +644,4 @@ async function doS3Download(mode) {
 /* ── Init ── */
 loadVersionList();
 if (document.getElementById("s3-file-list")) loadS3Files();
+initStagingSection();

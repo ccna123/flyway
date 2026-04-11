@@ -42,6 +42,7 @@ services:
       DB_PASSWORD: flyway_secret
       DB_SCHEMA: public
       SQL_DIR: /tmp/flyway-sql
+      RELEASE: true
     depends_on:
       postgres:
         condition: service_healthy

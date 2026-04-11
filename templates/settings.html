@@ -14,143 +14,189 @@
 </div>
 {% endif %}
 
-<div id="save-error" style="display:none;margin-bottom:16px">
-  <div class="alert alert-error" id="save-error-msg" style="margin-bottom:0"></div>
-</div>
-
 <form method="POST" id="settings-form" onsubmit="return validateSettings(event)">
+<!-- env_mode is determined by RELEASE env var — no UI toggle needed -->
+<input type="hidden" name="env_mode" value="{{ config.env_mode }}">
 
-<!-- ENV Mode Toggle -->
-<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px">
-  <span style="font-size:12px;color:var(--text3);font-family:var(--mono)">ENV MODE</span>
-  <div style="display:flex;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:3px;gap:2px">
-    <button type="button" id="btn-local" onclick="setEnvMode('local')"
-      style="padding:5px 18px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-family:var(--mono);font-weight:600;transition:all .15s">LOCAL</button>
-    <button type="button" id="btn-prod" onclick="setEnvMode('prod')"
-      style="padding:5px 18px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-family:var(--mono);font-weight:600;transition:all .15s">PROD</button>
-  </div>
-  <input type="hidden" name="env_mode" id="env_mode_input" value="{{ config.env_mode }}">
-  <span id="env-hint" style="font-size:11px;color:var(--text3)"></span>
-</div>
+<!-- ── Row 1: Primary DB + S3 ─────────────────────────────────────── -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:16px;align-items:start">
 
-<!-- DB Connection Card -->
-<div class="card" style="margin-bottom:20px">
-  <div class="card-hd">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)">
-      <ellipse cx="12" cy="5" rx="9" ry="3"/>
-      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-    </svg>
-    <span class="card-title">Database Connection</span>
-  </div>
-  <div class="card-body">
-    <div class="form-group">
-      <label class="form-lbl">DB Type</label>
-      <select name="db_type" class="form-select" id="db_type" onchange="onTypeChange()">
-        <option value="postgresql" {{ 'selected' if config.db_type == 'postgresql' }}>PostgreSQL / Aurora PostgreSQL</option>
-        <option value="mysql"      {{ 'selected' if config.db_type == 'mysql' }}>MySQL / Aurora MySQL</option>
-      </select>
+  <!-- DB Connection -->
+  <div class="card">
+    <div class="card-hd">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)">
+        <ellipse cx="12" cy="5" rx="9" ry="3"/>
+        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+      </svg>
+      <span class="card-title">Database Connection</span>
     </div>
-
-    <div class="form-row">
+    <div class="card-body">
       <div class="form-group">
-        <label class="form-lbl">Host / RDS Endpoint</label>
-        <input type="text" name="host" class="form-input" id="db_host"
-          value="{{ config.host }}"
-          placeholder="my-cluster.cluster-xxx.ap-northeast-1.rds.amazonaws.com"/>
+        <label class="form-lbl">DB Type</label>
+        <select name="db_type" class="form-select" id="db_type" onchange="onTypeChange()">
+          <option value="postgresql" {{ 'selected' if config.db_type == 'postgresql' }}>PostgreSQL / Aurora PostgreSQL</option>
+          <option value="mysql"      {{ 'selected' if config.db_type == 'mysql' }}>MySQL / Aurora MySQL</option>
+        </select>
       </div>
-      <div class="form-group" style="max-width:110px">
-        <label class="form-lbl">Port</label>
-        <input type="number" name="port" class="form-input" id="db_port"
-          value="{{ config.port }}" placeholder="5432"/>
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label class="form-lbl">Database Name</label>
-      <input type="text" name="database" class="form-input" id="db_name"
-        value="{{ config.database }}" placeholder="my_database"/>
-    </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-lbl">Username</label>
-        <input type="text" name="username" class="form-input" id="db_user"
-          value="{{ config.username }}" placeholder="flyway_user" autocomplete="off"/>
-      </div>
-      <div class="form-group">
-        <label class="form-lbl">Password</label>
-        <div style="position:relative">
-          <input type="password" name="password" class="form-input" id="db_pass"
-            value="{{ config.password }}" placeholder="••••••••" autocomplete="new-password"/>
-          <button type="button" onclick="togglePwd('db_pass','eye-db')"
-            style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3)">
-            <svg id="eye-db" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
-            </svg>
-          </button>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-lbl">Host / RDS Endpoint <span class="req-mark">*</span></label>
+          <input type="text" name="host" class="form-input" id="db_host" value="{{ config.host }}" placeholder="my-cluster.cluster-xxx.rds.amazonaws.com"/>
+        </div>
+        <div class="form-group" style="max-width:110px">
+          <label class="form-lbl">Port</label>
+          <input type="number" name="port" class="form-input" id="db_port" value="{{ config.port }}" placeholder="5432"/>
         </div>
       </div>
-    </div>
-
-    <div class="form-group" style="margin-bottom:20px">
-      <label class="form-lbl">Schema</label>
-      <input type="text" name="schema" class="form-input"
-        value="{{ config.schema }}" placeholder="public"/>
-      <div class="form-hint">Flyway history table will be created in this schema.</div>
-    </div>
-
-    <button type="button" class="btn btn-outline" id="btn-test-db" onclick="testDbConnection()">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
-      Test DB Connection
-    </button>
-    <div id="db-result" style="margin-top:12px;display:none">
-      <div class="alert" id="db-alert" style="margin-bottom:0"></div>
+      <div class="form-group">
+        <label class="form-lbl">Database Name <span class="req-mark">*</span></label>
+        <input type="text" name="database" class="form-input" id="db_name" value="{{ config.database }}" placeholder="my_database"/>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-lbl">Username <span class="req-mark">*</span></label>
+          <input type="text" name="username" class="form-input" id="db_user" value="{{ config.username }}" placeholder="flyway_user" autocomplete="off"/>
+        </div>
+        <div class="form-group">
+          <label class="form-lbl">Password</label>
+          <div style="position:relative">
+            <input type="password" name="password" class="form-input" id="db_pass" value="{{ config.password }}" placeholder="••••••••" autocomplete="new-password"/>
+            <button type="button" onclick="togglePwd('db_pass','eye-db')" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3)">
+              <svg id="eye-db" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:20px">
+        <label class="form-lbl">Schema</label>
+        <input type="text" name="schema" class="form-input" value="{{ config.schema }}" placeholder="public"/>
+        <div class="form-hint">Flyway history table will be created in this schema.</div>
+      </div>
+      <button type="button" class="btn btn-outline" id="btn-test-db" onclick="testConn('db')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+        Test Connection
+      </button>
+      <div id="db-result" style="margin-top:12px;display:none">
+        <div class="alert" id="db-alert" style="margin-bottom:0"></div>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- S3 Configuration Card — PROD only -->
-<div class="card" id="s3-card" style="margin-bottom:20px;display:none">
+  <!-- S3 Configuration -->
+  <div class="card">
+    <div class="card-hd">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--blue)">
+        <ellipse cx="12" cy="5" rx="9" ry="3"/>
+        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+      </svg>
+      <span class="card-title">S3 Configuration</span>
+      <span style="font-size:10px;font-family:var(--mono);padding:2px 8px;border-radius:4px;margin-left:8px;background:rgba(96,165,250,0.12);color:var(--blue)">IAM role</span>
+    </div>
+    <div class="card-body">
+      <div style="margin-bottom:14px;padding:8px 12px;background:var(--surface);border-radius:6px;border:1px solid var(--border);font-size:11px;color:var(--text3)">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;color:var(--accent)"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Credentials come from the IAM role attached to ECS task / EC2 instance.
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-lbl">S3 Bucket <span class="req-mark">*</span></label>
+          <input type="text" name="s3_bucket" class="form-input" id="s3_bucket" value="{{ config.s3_bucket }}" placeholder="my-migrations-bucket"/>
+        </div>
+        <div class="form-group" style="max-width:180px">
+          <label class="form-lbl">Region</label>
+          <input type="text" name="s3_region" class="form-input" value="{{ config.s3_region }}" placeholder="ap-northeast-1"/>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:20px">
+        <label class="form-lbl">Key Prefix <span style="color:var(--text3)">(folder in bucket)</span></label>
+        <input type="text" name="s3_prefix" class="form-input" value="{{ config.s3_prefix }}" placeholder="flyway/"/>
+        <div class="form-hint">Files stored as <code style="font-family:var(--mono);font-size:11px;color:var(--accent)">s3://bucket/prefix/V1__xxx.sql</code></div>
+      </div>
+      <button type="button" class="btn btn-outline" id="btn-test-s3" onclick="testS3()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
+        Test S3 / IAM Role
+      </button>
+      <div id="s3-result" style="margin-top:12px;display:none">
+        <div class="alert" id="s3-alert" style="margin-bottom:0"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end row 1 -->
+
+<!-- ── Row 2: Test / Staging DB ───────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;border-color:var(--amber)">
   <div class="card-hd">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--blue)">
-      <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--amber)">
+      <polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/>
     </svg>
-    <span class="card-title">S3 Configuration</span>
-    <span style="font-size:10px;font-family:var(--mono);padding:2px 8px;border-radius:4px;margin-left:8px;background:rgba(96,165,250,0.12);color:var(--blue)">IAM role</span>
+    <span class="card-title" style="color:var(--amber)">Test / Staging DB</span>
+    <span style="font-size:11px;color:var(--text3);margin-left:8px">Optional — for pre-production migration testing</span>
   </div>
   <div class="card-body">
     <div style="margin-bottom:14px;padding:8px 12px;background:var(--surface);border-radius:6px;border:1px solid var(--border);font-size:11px;color:var(--text3)">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;color:var(--accent)"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      PROD — credentials come from the IAM role attached to ECS task / EC2 instance.
+      Configure a temporary RDS cluster created by admin on AWS Console. The app will run migration
+      against this DB first so you can verify before touching production.
     </div>
-
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-lbl">S3 Bucket</label>
-        <input type="text" name="s3_bucket" class="form-input" id="s3_bucket"
-          value="{{ config.s3_bucket }}" placeholder="my-migrations-bucket"/>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:0 16px">
+      <div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-lbl">Host / Endpoint</label>
+            <input type="text" name="staging_host" class="form-input" id="staging_host"
+              value="{{ session.get('staging_db_host','') if session else '' }}"
+              placeholder="temp-cluster.cluster-xxx.rds.amazonaws.com"/>
+          </div>
+          <div class="form-group" style="max-width:110px">
+            <label class="form-lbl">Port</label>
+            <input type="number" name="staging_port" class="form-input" id="staging_port"
+              value="{{ session.get('staging_db_port','') if session else '' }}" placeholder="5432"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-lbl">Database Name</label>
+          <input type="text" name="staging_name" class="form-input" id="staging_name"
+            value="{{ session.get('staging_db_name','') if session else '' }}" placeholder="my_database"/>
+        </div>
       </div>
-      <div class="form-group" style="max-width:180px">
-        <label class="form-lbl">Region</label>
-        <input type="text" name="s3_region" class="form-input"
-          value="{{ config.s3_region }}" placeholder="ap-northeast-1"/>
+      <div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-lbl">Username</label>
+            <input type="text" name="staging_user" class="form-input" id="staging_user"
+              value="{{ session.get('staging_db_user','') if session else '' }}" placeholder="flyway_user" autocomplete="off"/>
+          </div>
+          <div class="form-group">
+            <label class="form-lbl">Password</label>
+            <div style="position:relative">
+              <input type="password" name="staging_password" class="form-input" id="staging_pass"
+                value="{{ session.get('staging_db_password','') if session else '' }}" placeholder="••••••••" autocomplete="new-password"/>
+              <button type="button" onclick="togglePwd('staging_pass','eye-stg')"
+                style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3)">
+                <svg id="eye-stg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-lbl">Schema</label>
+          <input type="text" name="staging_schema" class="form-input" id="staging_schema"
+            value="{{ session.get('staging_db_schema','') if session else '' }}" placeholder="public"/>
+        </div>
       </div>
     </div>
-
-    <div class="form-group" style="margin-bottom:20px">
-      <label class="form-lbl">Key Prefix <span style="color:var(--text3)">(folder in bucket)</span></label>
-      <input type="text" name="s3_prefix" class="form-input"
-        value="{{ config.s3_prefix }}" placeholder="flyway/"/>
-      <div class="form-hint">Files upload as <code style="font-family:var(--mono);font-size:11px;color:var(--accent)">s3://bucket/prefix/V1__xxx.sql</code></div>
-    </div>
-
-    <button type="button" class="btn btn-outline" id="btn-test-s3" onclick="testS3()">
+    <button type="button" class="btn btn-outline" id="btn-test-staging" onclick="testConn('staging')" style="color:var(--amber);border-color:var(--amber)">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
-      Test S3 / IAM Role
+      Test Staging Connection
     </button>
-    <div id="s3-result" style="margin-top:12px;display:none">
-      <div class="alert" id="s3-alert" style="margin-bottom:0"></div>
+    <div id="staging-result" style="margin-top:12px;display:none">
+      <div class="alert" id="staging-alert" style="margin-bottom:0"></div>
     </div>
   </div>
 </div>
@@ -168,40 +214,65 @@
 {% endblock %}
 
 {% block scripts %}
+<style>
+  .req-mark { color: var(--red); margin-left: 2px; }
+  .input-error { border-color: var(--red) !important; box-shadow: 0 0 0 2px rgba(239,68,68,0.18) !important; }
+  .toast-error {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    background: var(--card); border: 1px solid var(--red); border-radius: 8px;
+    padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+    max-width: 420px; min-width: 280px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.35);
+    animation: toastIn 0.2s ease;
+  }
+  @keyframes toastIn {
+    from { transform: translateX(16px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+</style>
 <script>
+  const REQUIRED_FIELDS = [
+    { id: "db_host",   label: "DB Host" },
+    { id: "db_name",   label: "Database Name" },
+    { id: "db_user",   label: "Username" },
+    { id: "s3_bucket", label: "S3 Bucket" },
+  ];
+  REQUIRED_FIELDS.forEach(({ id }) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", () => el.classList.remove("input-error"));
+  });
+
+  let toastTimer;
+  function showToast(msg) {
+    let t = document.getElementById("err-toast");
+    if (!t) { t = document.createElement("div"); t.id = "err-toast"; t.className = "toast-error"; document.body.appendChild(t); }
+    t.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--red)">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span style="flex:1;font-size:13px;color:var(--text1)">${escHtml(msg)}</span>
+      <button onclick="document.getElementById('err-toast').remove()" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:0;flex-shrink:0;display:flex;align-items:center">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { const el = document.getElementById("err-toast"); if (el) el.remove(); }, 5000);
+  }
+
   function validateSettings(e) {
-    const mode = document.getElementById("env_mode_input").value;
-    if (mode !== "prod") return true;
+    REQUIRED_FIELDS.forEach(({ id }) => document.getElementById(id)?.classList.remove("input-error"));
     const errs = [];
-    if (!document.getElementById("db_host").value.trim())  errs.push("DB Host");
-    if (!document.getElementById("db_name").value.trim())  errs.push("Database Name");
-    if (!document.getElementById("db_user").value.trim())  errs.push("Username");
-    if (!document.getElementById("s3_bucket").value.trim()) errs.push("S3 Bucket");
+    REQUIRED_FIELDS.forEach(({ id, label }) => {
+      const el = document.getElementById(id);
+      if (el && !el.value.trim()) { errs.push(label); el.classList.add("input-error"); }
+    });
     if (errs.length) {
-      document.getElementById("save-error").style.display = "block";
-      document.getElementById("save-error-msg").innerHTML =
-        `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> Required for PROD: ${errs.join(", ")}`;
+      showToast(`Required: ${errs.join(", ")}`);
+      document.querySelector(".input-error")?.scrollIntoView({ behavior: "smooth", block: "center" });
       e.preventDefault();
       return false;
     }
     return true;
   }
-
-  function setEnvMode(mode) {
-    document.getElementById("env_mode_input").value = mode;
-    const btnL = document.getElementById("btn-local");
-    const btnP = document.getElementById("btn-prod");
-    btnL.style.background = mode === "local" ? "var(--accent)" : "transparent";
-    btnL.style.color      = mode === "local" ? "#000"          : "var(--text2)";
-    btnP.style.background = mode === "prod"  ? "var(--blue)"   : "transparent";
-    btnP.style.color      = mode === "prod"  ? "#fff"          : "var(--text2)";
-    document.getElementById("s3-card").style.display = mode === "prod" ? "block" : "none";
-    document.getElementById("env-hint").textContent  = mode === "local"
-      ? "Files saved to container folder — no S3"
-      : "Files can be saved to S3 via IAM role";
-  }
-
-  setEnvMode("{{ config.env_mode }}");
 
   function togglePwd(inputId, iconId) {
     const inp = document.getElementById(inputId);
@@ -220,23 +291,35 @@
       document.getElementById("db_type").value === "mysql" ? "3306" : "5432";
   }
 
-  async function testDbConnection() {
-    const btn = document.getElementById("btn-test-db");
-    const resEl = document.getElementById("db-result");
-    const alertEl = document.getElementById("db-alert");
+  function escHtml(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function mkIcon(ok) {
+    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px">
+      ${ok ? '<polyline points="20,6 9,17 4,12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'}
+    </svg> `;
+  }
+
+  // Unified connection tester — 'db' or 'staging'
+  async function testConn(target) {
+    const isStaging = target === "staging";
+    const btn     = document.getElementById(isStaging ? "btn-test-staging" : "btn-test-db");
+    const resEl   = document.getElementById(isStaging ? "staging-result" : "db-result");
+    const alertEl = document.getElementById(isStaging ? "staging-alert" : "db-alert");
+
+    const host = document.getElementById(isStaging ? "staging_host"   : "db_host").value.trim();
+    const port = document.getElementById(isStaging ? "staging_port"   : "db_port").value;
+    const db   = document.getElementById(isStaging ? "staging_name"   : "db_name").value.trim();
+    const user = document.getElementById(isStaging ? "staging_user"   : "db_user").value.trim();
+    const pass = document.getElementById(isStaging ? "staging_pass"   : "db_pass").value;
+
+    if (!host) { showToast("Host is required to test connection."); return; }
+
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner" style="width:12px;height:12px"></span> Testing…`;
     resEl.style.display = "none";
     try {
       const res  = await fetch("/api/test-connection", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          host:     document.getElementById("db_host").value.trim(),
-          port:     document.getElementById("db_port").value,
-          database: document.getElementById("db_name").value.trim(),
-          username: document.getElementById("db_user").value.trim(),
-          password: document.getElementById("db_pass").value,
-        }),
+        body: JSON.stringify({ host, port, database: db, username: user, password: pass }),
       });
       const data = await res.json();
       resEl.style.display = "block";
@@ -248,13 +331,13 @@
       alertEl.textContent = e.message;
     } finally {
       btn.disabled = false;
-      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg> Test DB Connection`;
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg> ${isStaging ? "Test Staging Connection" : "Test Connection"}`;
     }
   }
 
   async function testS3() {
-    const btn = document.getElementById("btn-test-s3");
-    const resEl = document.getElementById("s3-result");
+    const btn     = document.getElementById("btn-test-s3");
+    const resEl   = document.getElementById("s3-result");
     const alertEl = document.getElementById("s3-alert");
     btn.disabled = true;
     btn.innerHTML = `<span class="spinner" style="width:12px;height:12px"></span> Testing…`;
@@ -276,16 +359,6 @@
       btn.disabled = false;
       btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg> Test S3 / IAM Role`;
     }
-  }
-
-  function mkIcon(ok) {
-    return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;margin-top:1px">
-      ${ok ? '<polyline points="20,6 9,17 4,12"/>' : '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'}
-    </svg> `;
-  }
-
-  function escHtml(s) {
-    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   }
 </script>
 {% endblock %}
