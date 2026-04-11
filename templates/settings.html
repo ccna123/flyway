@@ -19,10 +19,10 @@
 <input type="hidden" name="env_mode" value="{{ config.env_mode }}">
 
 <!-- ── Row 1: Primary DB + S3 ─────────────────────────────────────── -->
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:16px;align-items:start">
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:16px;align-items:stretch">
 
   <!-- DB Connection -->
-  <div class="card">
+  <div class="card" style="height:100%">
     <div class="card-hd">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)">
         <ellipse cx="12" cy="5" rx="9" ry="3"/>
@@ -39,20 +39,27 @@
           <option value="mysql"      {{ 'selected' if config.db_type == 'mysql' }}>MySQL / Aurora MySQL</option>
         </select>
       </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-lbl">Host / RDS Endpoint <span class="req-mark">*</span></label>
-          <input type="text" name="host" class="form-input" id="db_host" value="{{ config.host }}" placeholder="my-cluster.cluster-xxx.rds.amazonaws.com"/>
-        </div>
-        <div class="form-group" style="max-width:110px">
+      <!-- Host: full width (RDS endpoint is long) -->
+      <div class="form-group">
+        <label class="form-lbl">Host / RDS Endpoint <span class="req-mark">*</span></label>
+        <input type="text" name="host" class="form-input" id="db_host" value="{{ config.host }}" placeholder="my-cluster.cluster-xxx.rds.amazonaws.com"/>
+      </div>
+      <!-- Port + DB Name + Schema: same row -->
+      <div style="display:grid;grid-template-columns:110px 1fr 120px;gap:14px;margin-bottom:14px">
+        <div class="form-group" style="margin-bottom:0">
           <label class="form-lbl">Port</label>
           <input type="number" name="port" class="form-input" id="db_port" value="{{ config.port }}" placeholder="5432"/>
         </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-lbl">Database Name <span class="req-mark">*</span></label>
+          <input type="text" name="database" class="form-input" id="db_name" value="{{ config.database }}" placeholder="my_database"/>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-lbl">Schema</label>
+          <input type="text" name="schema" class="form-input" value="{{ config.schema }}" placeholder="public"/>
+        </div>
       </div>
-      <div class="form-group">
-        <label class="form-lbl">Database Name <span class="req-mark">*</span></label>
-        <input type="text" name="database" class="form-input" id="db_name" value="{{ config.database }}" placeholder="my_database"/>
-      </div>
+      <!-- Username + Password: same row -->
       <div class="form-row">
         <div class="form-group">
           <label class="form-lbl">Username <span class="req-mark">*</span></label>
@@ -70,11 +77,7 @@
           </div>
         </div>
       </div>
-      <div class="form-group" style="margin-bottom:20px">
-        <label class="form-lbl">Schema</label>
-        <input type="text" name="schema" class="form-input" value="{{ config.schema }}" placeholder="public"/>
-        <div class="form-hint">Flyway history table will be created in this schema.</div>
-      </div>
+      <div style="margin-bottom:20px"></div>
       <button type="button" class="btn btn-outline" id="btn-test-db" onclick="testConn('db')">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/></svg>
         Test Connection
@@ -85,8 +88,9 @@
     </div>
   </div>
 
-  <!-- S3 Configuration -->
-  <div class="card">
+  <!-- S3 Configuration (prod only) -->
+  {% if config.release %}
+  <div class="card" style="height:100%">
     <div class="card-hd">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--blue)">
         <ellipse cx="12" cy="5" rx="9" ry="3"/>
@@ -125,6 +129,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
 </div><!-- end row 1 -->
 
@@ -232,10 +237,10 @@
 </style>
 <script>
   const REQUIRED_FIELDS = [
-    { id: "db_host",   label: "DB Host" },
-    { id: "db_name",   label: "Database Name" },
-    { id: "db_user",   label: "Username" },
-    { id: "s3_bucket", label: "S3 Bucket" },
+    { id: "db_host", label: "DB Host" },
+    { id: "db_name", label: "Database Name" },
+    { id: "db_user", label: "Username" },
+    {% if config.release %}{ id: "s3_bucket", label: "S3 Bucket" },{% endif %}
   ];
   REQUIRED_FIELDS.forEach(({ id }) => {
     const el = document.getElementById(id);

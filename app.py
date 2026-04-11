@@ -279,6 +279,7 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
         "-validateOnMigrate=true",
         "-ignoreMigrationPatterns=*:Missing",
         "-baselineOnMigrate=true",
+        "-baselineVersion=0",
         f"-outOfOrder={out_of_order}",
         "migrate",
     ]

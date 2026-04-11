@@ -27,22 +27,8 @@ services:
       - "5000:5000"
     volumes:
       - ./migrations:/tmp/flyway-sql
-    environment:
-      AWS_ACCESS_KEY_ID: AKIAZ5WTWXRJUV4FMENU
-      AWS_SECRET_ACCESS_KEY: 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
-      AWS_REGION: ap-northeast-1
-      APP_ENV: local
-      FLASK_DEBUG: "true"
-      SECRET_KEY: "dev-secret-key"
-      DB_TYPE: postgresql
-      DB_HOST: flyway-postgres
-      DB_PORT: "5432"
-      DB_NAME: flywaydb
-      DB_USER: flyway
-      DB_PASSWORD: flyway_secret
-      DB_SCHEMA: public
-      SQL_DIR: /tmp/flyway-sql
-      RELEASE: true
+    env_file:
+      - .env
     depends_on:
       postgres:
         condition: service_healthy
