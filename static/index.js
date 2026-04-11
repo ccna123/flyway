@@ -138,7 +138,7 @@ function renderVersionChips() {
 
   const seen = new Map();
   cachedVersionFiles.forEach(f => {
-    if (!seen.has(f.parsed.version)) seen.set(f.parsed.version, f.parsed);
+    if (!seen.has(f.parsed.version)) seen.set(f.parsed.version, { ...f.parsed, size: f.size });
   });
 
   const unique = [...seen.values()].sort((a, b) => {
@@ -154,6 +154,7 @@ function renderVersionChips() {
              onchange="toggleDeleteSelect(this)" style="margin-right:8px; accent-color:var(--red)">
       <span class="chip-v">${p.version}</span>
       <span class="chip-d">${p.description || ""}</span>
+      ${p.size ? `<span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:var(--mono)">${fmtSize(p.size)}</span>` : ""}
     </div>`).join("");
 
   html += `
@@ -284,23 +285,28 @@ async function doS3Upload(mode) {
 let stagingState = { running: false, executionId: null, pollTimer: null };
 
 function initStagingSection() {
-  if (!STAGING_CONFIGURED) return;
-  const sec = document.getElementById("staging-section");
-  if (sec) {
-    sec.style.display = "block";
-    const label = document.getElementById("staging-db-label");
-    if (label) label.textContent = STAGING_HOST + (STAGING_DB ? " / " + STAGING_DB : "");
+  const labelEl = document.getElementById("staging-db-label");
+  const btn     = document.getElementById("btn-staging");
+  if (STAGING_CONFIGURED) {
+    labelEl.textContent = STAGING_HOST + (STAGING_DB ? " / " + STAGING_DB : "");
+  } else {
+    labelEl.innerHTML = '<a href="/settings" style="color:var(--text3);font-size:11px;text-decoration:none">Not configured — go to Settings →</a>';
+    btn.disabled = true;
+    btn.style.opacity = "0.4";
+    btn.title = "Configure Staging DB in Settings first";
   }
 }
 
 async function runStagingTest() {
-  if (stagingState.running || !state.selectedVersion) return;
+  if (stagingState.running || !state.selectedVersion || !STAGING_CONFIGURED) return;
   stagingState.running = true;
-  const btn    = document.getElementById("btn-staging");
-  const result = document.getElementById("staging-run-result");
+  const btn = document.getElementById("btn-staging");
   btn.disabled = true;
-  btn.innerHTML = `<span class="spinner" style="width:11px;height:11px"></span> Testing…`;
-  result.style.display = "none";
+  btn.innerHTML = `<span class="spinner" style="width:11px;height:11px"></span> Running…`;
+  // reuse the shared log + verify panels
+  document.getElementById("log-wrap").style.display = "block";
+  document.getElementById("verify-wrap").style.display = "none";
+  setLog([]);
 
   try {
     const res  = await fetch("/api/migrate/staging", {
@@ -309,14 +315,14 @@ async function runStagingTest() {
     });
     const data = await res.json();
     if (!res.ok || !data.executionId) {
-      showStagingResult(false, data.message || "Failed to start staging test");
+      stagingDone(false, data.message || "Failed to start staging test", null);
       return;
     }
     stagingState.executionId = data.executionId;
     stagingState.pollTimer   = setInterval(pollStaging, 3000);
     pollStaging();
   } catch (e) {
-    showStagingResult(false, e.message);
+    stagingDone(false, e.message, null);
   }
 }
 
@@ -324,31 +330,29 @@ async function pollStaging() {
   try {
     const res  = await fetch(`/api/migrate/status/${stagingState.executionId}`);
     const data = await res.json();
+    if (data.logs) setLog(data.logs);
     if (data.status === "SUCCESS") {
       clearInterval(stagingState.pollTimer);
-      stagingState.running = false;
-      showStagingResult(true, "Test DB migration succeeded");
-      resetStagingBtn();
+      stagingDone(true, null, data.verification);
     } else if (data.status === "FAILED") {
       clearInterval(stagingState.pollTimer);
-      stagingState.running = false;
-      showStagingResult(false, data.errorMessage || "Staging migration failed");
-      resetStagingBtn();
+      stagingDone(false, data.errorMessage || "Staging migration failed", null);
     }
   } catch (e) { console.error("staging poll", e); }
 }
 
-function showStagingResult(ok, msg) {
+function stagingDone(ok, errMsg, verification) {
+  stagingState.running = false;
+  const btn = document.getElementById("btn-staging");
+  btn.disabled = false;
+  btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5,3 19,12 5,21 5,3"/></svg> Run on Staging`;
   const result = document.getElementById("staging-run-result");
   result.style.display = "block";
   result.style.color   = ok ? "var(--accent)" : "var(--red)";
-  result.textContent   = (ok ? "✓ " : "✗ ") + msg;
-}
-
-function resetStagingBtn() {
-  const btn = document.getElementById("btn-staging");
-  btn.disabled = false;
-  btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg> Run on Test DB`;
+  result.textContent   = ok ? "✓ Staging passed" : "✗ " + errMsg;
+  if (ok && verification) renderVerification(verification);
+  if (!ok && errMsg) appendLog("ERROR", errMsg);
+  refreshHistory();
 }
 
 /* ── Post-migration verification render ── */
@@ -437,6 +441,7 @@ async function runMigration() {
     if (!res.ok || !data.executionId) { showRunError(data.message || "Failed to start migration"); return; }
     state.executionId = data.executionId;
     startPolling();
+    refreshHistory();   // show Running: 1 immediately
   } catch (e) { showRunError(e.message); }
 }
 
@@ -466,24 +471,29 @@ async function poll() {
   } catch (e) { console.error("poll error", e); }
 }
 
-function onDone(ok, errMsg, verification) {
+async function onDone(ok, errMsg, verification) {
   state.running = false;
   const btn = document.getElementById("btn-run");
   btn.classList.remove("running");
+  // Reset all inline styles set during running/success states
+  btn.style.background  = "";
+  btn.style.color       = "";
+  btn.style.borderColor = "";
   if (ok) {
-    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20,6 9,17 4,12"/></svg> Migration Successful`;
-    btn.style.background = "var(--accent-d)";
-    btn.style.color      = "var(--accent)";
-    btn.style.borderColor = "var(--accent-b)";
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5,3 19,12 5,21 5,3"/></svg> Run on Production`;
+    btn.disabled  = false;
+    btn.onclick   = runMigration;
     renderVerification(verification);
   } else {
     btn.classList.add("failed");
+    btn.style.color       = "var(--red)";
+    btn.style.borderColor = "var(--red)";
     btn.innerHTML = `↺ Retry Migration`;
     btn.disabled  = false;
     btn.onclick   = runMigration;
     if (errMsg) appendLog("ERROR", errMsg);
   }
-  refreshHistory();
+  await refreshHistory();
   loadVersionList();
 }
 
@@ -512,10 +522,6 @@ async function refreshHistory() {
   try {
     const res = await fetch("/api/migrate/history");
     const { migrations } = await res.json();
-    document.getElementById("stat-total").textContent   = migrations.length;
-    document.getElementById("stat-success").textContent = migrations.filter(m => m.status === "SUCCESS").length;
-    document.getElementById("stat-running").textContent = migrations.filter(m => m.status === "RUNNING").length;
-    document.getElementById("stat-failed").textContent  = migrations.filter(m => m.status === "FAILED").length;
     const tbody = document.getElementById("history-tbody");
     if (!migrations.length) {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px">No migrations recorded yet.</td></tr>';

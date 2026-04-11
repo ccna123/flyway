@@ -4,32 +4,6 @@
 <span class="topbar-sub">{{ config.database or 'DB not configured' }}</span>
 {% endblock %} {% block content %}
 
-<!-- Stats row -->
-<div class="stat-row" id="stat-row">
-  <div class="stat">
-    <div class="stat-lbl">Total Runs</div>
-    <div class="stat-val c-muted" id="stat-total">{{ history | length }}</div>
-  </div>
-  <div class="stat">
-    <div class="stat-lbl">Successful</div>
-    <div class="stat-val c-green" id="stat-success">
-      {{ history | selectattr('status','eq','SUCCESS') | list | length }}
-    </div>
-  </div>
-  <div class="stat">
-    <div class="stat-lbl">Running</div>
-    <div class="stat-val c-blue" id="stat-running">
-      {{ history | selectattr('status','eq','RUNNING') | list | length }}
-    </div>
-  </div>
-  <div class="stat">
-    <div class="stat-lbl">Failed</div>
-    <div class="stat-val c-red" id="stat-failed">
-      {{ history | selectattr('status','eq','FAILED') | list | length }}
-    </div>
-  </div>
-</div>
-
 <!-- Row 1: Upload + Version -->
 <div style="display:grid;grid-template-columns:0.75fr 1.6fr;gap:16px;margin-bottom:16px">
   <!-- Step 1: Upload -->
@@ -368,31 +342,36 @@
     class="card-body"
     style="display: flex; flex-direction: row; gap: 32px; align-items: flex-start; flex-wrap: wrap"
   >
-    <!-- Left: DB info + staging test + run button -->
-    <div style="display:flex;flex-direction:column;gap:14px;min-width:220px">
-      <div>
-        <div class="section-lbl">Production DB</div>
-        <div class="db-display">
-          {% if config.host %} {{ config.host }}:{{ config.port }} / {{ config.database }}
-          {% else %}<span style="color:var(--text3)">Not configured — go to Settings</span>{% endif %}
-        </div>
-      </div>
+    <!-- Left: two-step workflow (staging → production) -->
+    <div style="display:flex;flex-direction:column;min-width:240px">
 
-      <!-- Staging section (shown by JS when STAGING_CONFIGURED) -->
-      <div id="staging-section" style="display:none;border-top:1px solid var(--border);padding-top:12px">
-        <div class="section-lbl" style="color:var(--amber)">Test DB</div>
-        <div class="db-display" style="font-size:11px" id="staging-db-label"></div>
+      <!-- Step 1: Staging (optional) -->
+      <div style="padding-bottom:16px;margin-bottom:16px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span style="font-size:9px;font-weight:700;letter-spacing:.6px;color:var(--amber);background:color-mix(in srgb,var(--amber) 12%,transparent);padding:2px 6px;border-radius:10px;border:1px solid color-mix(in srgb,var(--amber) 30%,transparent)">STEP 1 · OPTIONAL</span>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:5px">Test on Staging</div>
+        <div class="db-display" style="font-size:11px;margin-bottom:10px" id="staging-db-label"></div>
         <button class="btn btn-sm" id="btn-staging" onclick="runStagingTest()"
-          style="margin-top:8px;color:var(--amber);border-color:var(--amber);display:flex;align-items:center;gap:6px">
+          style="color:var(--amber);border-color:var(--amber);display:flex;align-items:center;gap:6px">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/>
+            <polygon points="5,3 19,12 5,21 5,3"/>
           </svg>
-          Run on Test DB
+          Run on Staging
         </button>
         <div id="staging-run-result" style="display:none;margin-top:8px;font-size:12px;font-family:var(--mono)"></div>
       </div>
 
-      <div id="run-area" style="border-top:1px solid var(--border);padding-top:12px">
+      <!-- Step 2: Production -->
+      <div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span style="font-size:9px;font-weight:700;letter-spacing:.6px;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:2px 6px;border-radius:10px;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent)">STEP 2 · PRODUCTION</span>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:5px">Apply to Production</div>
+        <div class="db-display" style="margin-bottom:10px">
+          {% if config.host %}{{ config.host }}:{{ config.port }} / {{ config.database }}
+          {% else %}<span style="color:var(--text3)">Not configured — go to Settings</span>{% endif %}
+        </div>
         <button class="btn btn-run" id="btn-run" onclick="runMigration()" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="5,3 19,12 5,21 5,3"/>

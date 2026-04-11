@@ -1,1 +1,7 @@
 .env
+
+# Claude Code — contains API keys
+.claude/
+
+# TestSprite temp files
+testsprite_tests/tmp/*

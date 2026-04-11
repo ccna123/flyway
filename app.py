@@ -392,9 +392,12 @@ def api_upload():
         if not f.filename.endswith(".sql"):
             errors.append(f"{f.filename}: not a .sql file")
             continue
+        parsed = parse_filename(f.filename)
+        if not parsed:
+            errors.append(f"{f.filename}: invalid Flyway filename — expected V{{n}}__description.sql")
+            continue
         dest = sql_dir / f.filename
         f.save(dest)
-        parsed = parse_filename(f.filename)
         uploaded.append({"filename": f.filename, "size": dest.stat().st_size, "parsed": parsed})
 
     return jsonify({"uploaded": uploaded, "errors": errors})
