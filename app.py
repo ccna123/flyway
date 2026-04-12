@@ -11,13 +11,12 @@ from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
-from flask import Flask, render_template, request, jsonify, session, Response
+from flask import Flask, render_template, request, jsonify, Response
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "flyway-secret-change-in-prod")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -72,56 +71,36 @@ def require_basic_auth():
 # ── Config ────────────────────────────────────────────────────────────────────
 
 def get_db_config() -> dict:
-    """Session overrides ENV vars — UI settings take priority.
-    env_mode is determined solely by RELEASE env var — no UI toggle.
-    """
+    """Read all config from env vars only."""
     release  = os.environ.get("RELEASE", "true").lower() not in ("false", "0", "no")
     env_mode = "prod" if release else os.environ.get("APP_ENV", "local")
-
-    staging_host = session.get("staging_db_host", "").strip()
+    staging_host = os.environ.get("STAGING_DB_HOST", "").strip()
 
     return {
-        "db_type":    session.get("db_type")    or os.environ.get("DB_TYPE", "postgresql"),
-        "host":       session.get("db_host")     or os.environ.get("DB_HOST", ""),
-        "port":       session.get("db_port")     or os.environ.get("DB_PORT", "5432"),
-        "database":   session.get("db_name")     or os.environ.get("DB_NAME", ""),
-        "username":   session.get("db_user")     or os.environ.get("DB_USER", ""),
-        "password":   session.get("db_password") or os.environ.get("DB_PASSWORD", ""),
-        "schema":     session.get("db_schema")   or os.environ.get("DB_SCHEMA", "public"),
-        "sql_dir":    session.get("sql_dir")     or os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
-        "env_mode":   env_mode,
-        "env_label":  env_mode,
-        "release":    release,
+        "db_type":  os.environ.get("DB_TYPE", "postgresql"),
+        "host":     os.environ.get("DB_HOST", ""),
+        "port":     os.environ.get("DB_PORT", "5432"),
+        "database": os.environ.get("DB_NAME", ""),
+        "username": os.environ.get("DB_USER", ""),
+        "password": os.environ.get("DB_PASSWORD", ""),
+        "schema":   os.environ.get("DB_SCHEMA", "public"),
+        "sql_dir":  os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
+        "env_mode":  env_mode,
+        "env_label": env_mode,
+        "release":   release,
         # S3
-        "s3_bucket":  session.get("s3_bucket") or os.environ.get("S3_BUCKET", ""),
-        "s3_region":  session.get("s3_region") or os.environ.get("S3_REGION", "ap-northeast-1"),
-        "s3_prefix":  session.get("s3_prefix") or os.environ.get("S3_PREFIX", "flyway/"),
+        "s3_bucket": os.environ.get("S3_BUCKET", ""),
+        "s3_region": os.environ.get("S3_REGION", "ap-northeast-1"),
+        "s3_prefix": os.environ.get("S3_PREFIX", "flyway/"),
         # Staging / test DB
         "staging_configured": bool(staging_host),
         "staging_host":       staging_host,
-        "staging_db_name":    session.get("staging_db_name", ""),
+        "staging_port":       os.environ.get("STAGING_DB_PORT", ""),
+        "staging_db_name":    os.environ.get("STAGING_DB_NAME", ""),
+        "staging_username":   os.environ.get("STAGING_DB_USER", ""),
+        "staging_password":   os.environ.get("STAGING_DB_PASSWORD", ""),
+        "staging_schema":     os.environ.get("STAGING_DB_SCHEMA", ""),
     }
-
-
-def save_db_config(form):
-    field_map = {
-        # Primary DB
-        "db_type": "db_type", "host": "db_host", "port": "db_port",
-        "database": "db_name", "username": "db_user", "password": "db_password",
-        "schema": "db_schema", "sql_dir": "sql_dir",
-        # S3
-        "s3_bucket": "s3_bucket", "s3_region": "s3_region", "s3_prefix": "s3_prefix",
-        # Staging / test DB
-        "staging_host":     "staging_db_host",
-        "staging_port":     "staging_db_port",
-        "staging_name":     "staging_db_name",
-        "staging_user":     "staging_db_user",
-        "staging_password": "staging_db_password",
-        "staging_schema":   "staging_db_schema",
-    }
-    for form_key, session_key in field_map.items():
-        val = form.get(form_key, "").strip()
-        session[session_key] = val
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -136,19 +115,19 @@ def parse_filename(filename: str):
 
 
 def get_staging_config() -> dict | None:
-    """Returns staging DB config merged from session, or None if not configured."""
-    host = session.get("staging_db_host", "").strip()
+    """Returns staging DB config from env vars, or None if not configured."""
+    host = os.environ.get("STAGING_DB_HOST", "").strip()
     if not host:
         return None
     base = get_db_config()
     return {
         **base,
         "host":     host,
-        "port":     session.get("staging_db_port") or base["port"],
-        "database": session.get("staging_db_name") or base["database"],
-        "username": session.get("staging_db_user") or base["username"],
-        "password": session.get("staging_db_password") or base["password"],
-        "schema":   session.get("staging_db_schema") or base["schema"],
+        "port":     os.environ.get("STAGING_DB_PORT") or base["port"],
+        "database": os.environ.get("STAGING_DB_NAME") or base["database"],
+        "username": os.environ.get("STAGING_DB_USER") or base["username"],
+        "password": os.environ.get("STAGING_DB_PASSWORD") or base["password"],
+        "schema":   os.environ.get("STAGING_DB_SCHEMA") or base["schema"],
         "is_staging": True,
     }
 
@@ -401,14 +380,10 @@ def index():
     return render_template("index.html", config=config, history=history, active="migrate")
 
 
-@app.route("/settings", methods=["GET", "POST"])
+@app.route("/settings", methods=["GET"])
 def settings():
-    saved = False
-    if request.method == "POST":
-        save_db_config(request.form)
-        saved = True
     config = get_db_config()
-    return render_template("settings.html", config=config, active="settings", saved=saved)
+    return render_template("settings.html", config=config, active="settings")
 
 
 # ── API Routes ────────────────────────────────────────────────────────────────
