@@ -5,3 +5,9 @@
 
 # TestSprite temp files
 testsprite_tests/tmp/*
+
+ecs-controller/node_modules/*
+ecs-controller/dist/*
+ecs-controller/.vscode/*
+ecs-controller/.idea/*
+ecs-controller/.env
