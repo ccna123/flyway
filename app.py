@@ -288,8 +288,11 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
     log("INFO", "Launching Flyway...")
 
     try:
+        env = os.environ.copy()
+        # Force IPv4: Java prefers IPv6 by default, which fails in many Docker setups
+        env['JAVA_ARGS'] = '-Djava.net.preferIPv4Stack=true ' + env.get('JAVA_ARGS', '')
         proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
         )
         for line in proc.stdout:
             line = line.rstrip()

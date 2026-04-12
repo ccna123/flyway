@@ -29,6 +29,8 @@ services:
       - ./migrations:/tmp/flyway-sql
     env_file:
       - .env
+    environment:
+      - JAVA_ARGS=-Djava.net.preferIPv4Stack=true
     depends_on:
       postgres:
         condition: service_healthy
