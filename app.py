@@ -9,8 +9,6 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-import boto3
-from botocore.exceptions import ClientError
 from flask import Flask, render_template, request, jsonify, Response
 from dotenv import load_dotenv
 
@@ -29,28 +27,9 @@ executions_lock = threading.Lock()
 
 # ── Basic Auth (prod only) ─────────────────────────────────────────────────────
 
-_RELEASE = os.environ.get("RELEASE", "false").lower() not in ("false", "0", "no")
-
-def _load_basic_auth_credentials():
-    """Fetch username/password from SSM Parameter Store (SecureString).
-    Only called when RELEASE=true. Returns (user, password) or (None, None).
-    """
-    if not _RELEASE:
-        return None, None
-    region = os.environ.get("AWS_REGION", "ap-northeast-1")
-    param_user = os.environ.get("SSM_PARAM_USER", "/flywayops/basic_user")
-    param_pass = os.environ.get("SSM_PARAM_PASS", "/flywayops/basic_pass")
-    try:
-        ssm = boto3.client("ssm", region_name=region)
-        user = ssm.get_parameter(Name=param_user, WithDecryption=True)["Parameter"]["Value"]
-        pwd  = ssm.get_parameter(Name=param_pass, WithDecryption=True)["Parameter"]["Value"]
-        logger.info("Basic auth credentials loaded from SSM.")
-        return user, pwd
-    except ClientError as e:
-        logger.error("Failed to load SSM parameters for basic auth: %s", e)
-        return None, None
-
-_BASIC_USER, _BASIC_PASS = _load_basic_auth_credentials()
+_RELEASE     = os.environ.get("RELEASE", "false").lower() not in ("false", "0", "no")
+_BASIC_USER  = os.environ.get("BASIC_USER", "")
+_BASIC_PASS  = os.environ.get("BASIC_PASS", "")
 
 
 @app.before_request
@@ -372,6 +351,14 @@ def run_flyway_async(execution_id: str, config: dict, target_version: str | None
 
 # ── Page Routes ───────────────────────────────────────────────────────────────
 
+@app.route("/api/config")
+def api_config():
+    """Return only server-side metadata; DB config is managed by the frontend."""
+    release  = os.environ.get("RELEASE", "false").lower() not in ("false", "0", "no")
+    env_mode = "prod" if release else os.environ.get("APP_ENV", "local")
+    return jsonify({"env_mode": env_mode, "release": release})
+
+
 @app.route("/")
 def index():
     config = get_db_config()
@@ -445,9 +432,20 @@ def api_delete_file(filename):
 
 @app.route("/api/migrate", methods=["POST"])
 def api_migrate():
-    config = get_db_config()
     d = request.get_json() or {}
     target_version = d.get("version")
+    db = d.get("db", {})
+    config = {
+        "host":     db.get("host", ""),
+        "port":     db.get("port", "5432"),
+        "database": db.get("database", ""),
+        "username": db.get("username", ""),
+        "password": db.get("password", ""),
+        "schema":   db.get("schema", "public"),
+        "sql_dir":  os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
+    }
+    if not config["host"] or not config["database"]:
+        return jsonify({"success": False, "message": "DB host and database name are required. Configure in Settings."}), 400
 
     with executions_lock:
         running = [e for e in executions.values() if e["status"] == "RUNNING"]
@@ -483,13 +481,22 @@ def api_migrate():
 
 @app.route("/api/migrate/staging", methods=["POST"])
 def api_migrate_staging():
-    """Run migration against the configured staging/test DB."""
-    staging = get_staging_config()
-    if not staging:
-        return jsonify({"success": False, "message": "Test DB not configured in Settings."}), 400
-
+    """Run migration against the staging/test DB (config sent from frontend)."""
     d = request.get_json() or {}
     target_version = d.get("version")
+    stg = d.get("staging_db", {})
+    if not stg.get("host"):
+        return jsonify({"success": False, "message": "Staging DB not configured in Settings."}), 400
+    staging = {
+        "host":       stg.get("host", ""),
+        "port":       stg.get("port", "5432"),
+        "database":   stg.get("database", ""),
+        "username":   stg.get("username", ""),
+        "password":   stg.get("password", ""),
+        "schema":     stg.get("schema", "public"),
+        "sql_dir":    os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
+        "is_staging": True,
+    }
 
     exec_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat() + "Z"
@@ -616,6 +623,21 @@ def _require_local():
     return None
 
 
+def _db_from_body() -> dict:
+    """Extract DB connection config from request JSON body (key: 'db')."""
+    d = request.get_json() or {}
+    db = d.get("db", {})
+    return {
+        "host":     db.get("host", ""),
+        "port":     db.get("port", "5432"),
+        "database": db.get("database", ""),
+        "username": db.get("username", ""),
+        "password": db.get("password", ""),
+        "schema":   db.get("schema", "public"),
+        "sql_dir":  os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
+    }
+
+
 def _pg_conn(config):
     import psycopg2
     return psycopg2.connect(
@@ -629,7 +651,7 @@ def api_dev_clear():
     err = _require_local()
     if err:
         return err
-    config = get_db_config()
+    config = _db_from_body()
     try:
         conn = _pg_conn(config)
         conn.autocommit = True
@@ -660,7 +682,7 @@ def api_dev_seed():
     err = _require_local()
     if err:
         return err
-    config = get_db_config()
+    config = _db_from_body()
     try:
         conn = _pg_conn(config)
         cur = conn.cursor()
@@ -684,7 +706,7 @@ def api_dev_update():
     err = _require_local()
     if err:
         return err
-    config = get_db_config()
+    config = _db_from_body()
     try:
         conn = _pg_conn(config)
         cur = conn.cursor()
@@ -705,12 +727,12 @@ def api_dev_update():
         return jsonify({"success": False, "message": str(e)})
 
 
-@app.route("/api/dev/query", methods=["GET"])
+@app.route("/api/dev/query", methods=["POST"])
 def api_dev_query():
     err = _require_local()
     if err:
         return err
-    config = get_db_config()
+    config = _db_from_body()
     try:
         conn = _pg_conn(config)
         cur = conn.cursor()

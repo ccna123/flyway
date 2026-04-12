@@ -69,8 +69,8 @@ RELEASE=false
 | `SQL_DIR` | Thư mục Flyway đọc file SQL, trong container là `/tmp/flyway-sql` |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | PostgreSQL connection |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | AWS (S3 + staging) |
-| `SSM_PARAM_USER` | SSM path cho Basic Auth username (default: `/flywayops/basic_user`) |
-| `SSM_PARAM_PASS` | SSM path cho Basic Auth password (default: `/flywayops/basic_pass`) |
+| `BASIC_USER` | Basic Auth username (set trực tiếp trong ECS task definition env vars) |
+| `BASIC_PASS` | Basic Auth password (set trực tiếp trong ECS task definition env vars) |
 
 ---
 
@@ -185,29 +185,17 @@ Test classes: `TestPages`, `TestUpload`, `TestFileManagement`, `TestMigrate`, `T
 - Migration history: bỏ stat cards (Total/Passed/Failed), chỉ giữ table
 - Button states: success → reset về "Run on Production"; failed → đỏ + "Retry Migration"
 - `refreshHistory()` await đúng cách trong `onDone()` để stats update ngay
-- HTTP Basic Auth: bật khi `RELEASE=true`, credentials fetch từ SSM Parameter Store lúc startup
+- HTTP Basic Auth: bật khi `RELEASE=true`, credentials đọc từ env vars `BASIC_USER` / `BASIC_PASS`
 
 ## Basic Auth — Setup trên AWS
 
-Tạo 2 SSM Parameter (SecureString) trước khi deploy:
-```bash
-aws ssm put-parameter --name "/flywayops/basic_user" --value "admin" --type SecureString
-aws ssm put-parameter --name "/flywayops/basic_pass" --value "your-strong-password" --type SecureString
+Set 2 env vars trong ECS task definition hoặc App Runner:
+```
+BASIC_USER=admin
+BASIC_PASS=your-strong-password
 ```
 
-App Runner task role cần có IAM permission:
-```json
-{
-  "Effect": "Allow",
-  "Action": "ssm:GetParameter",
-  "Resource": [
-    "arn:aws:ssm:REGION:ACCOUNT:parameter/flywayops/basic_user",
-    "arn:aws:ssm:REGION:ACCOUNT:parameter/flywayops/basic_pass"
-  ]
-}
-```
-
-Credentials được load 1 lần lúc startup (`_load_basic_auth_credentials()` trong `app.py`), cache vào module-level vars — không fetch lại mỗi request.
+Không cần SSM, không cần IAM permission thêm. Ai có quyền vào ECS Console mới thấy giá trị — chấp nhận được cho internal tool.
 
 ---
 
