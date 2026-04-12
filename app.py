@@ -9,7 +9,9 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify, session
+import boto3
+from botocore.exceptions import ClientError
+from flask import Flask, render_template, request, jsonify, session, Response
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,6 +26,47 @@ logger = logging.getLogger(__name__)
 # In-memory execution store (ECS task = single process, fine for this use case)
 executions: dict = {}
 executions_lock = threading.Lock()
+
+
+# ── Basic Auth (prod only) ─────────────────────────────────────────────────────
+
+_RELEASE = os.environ.get("RELEASE", "false").lower() not in ("false", "0", "no")
+
+def _load_basic_auth_credentials():
+    """Fetch username/password from SSM Parameter Store (SecureString).
+    Only called when RELEASE=true. Returns (user, password) or (None, None).
+    """
+    if not _RELEASE:
+        return None, None
+    region = os.environ.get("AWS_REGION", "ap-northeast-1")
+    param_user = os.environ.get("SSM_PARAM_USER", "/flywayops/basic_user")
+    param_pass = os.environ.get("SSM_PARAM_PASS", "/flywayops/basic_pass")
+    try:
+        ssm = boto3.client("ssm", region_name=region)
+        user = ssm.get_parameter(Name=param_user, WithDecryption=True)["Parameter"]["Value"]
+        pwd  = ssm.get_parameter(Name=param_pass, WithDecryption=True)["Parameter"]["Value"]
+        logger.info("Basic auth credentials loaded from SSM.")
+        return user, pwd
+    except ClientError as e:
+        logger.error("Failed to load SSM parameters for basic auth: %s", e)
+        return None, None
+
+_BASIC_USER, _BASIC_PASS = _load_basic_auth_credentials()
+
+
+@app.before_request
+def require_basic_auth():
+    """Enforce HTTP Basic Auth on all routes when RELEASE=true."""
+    if not _RELEASE:
+        return  # local dev — skip auth entirely
+    auth = request.authorization
+    if auth and auth.username == _BASIC_USER and auth.password == _BASIC_PASS:
+        return  # authenticated
+    return Response(
+        "Authentication required.",
+        401,
+        {"WWW-Authenticate": 'Basic realm="FlywayOps"'},
+    )
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -521,9 +564,8 @@ def _s3_client(config):
 
 @app.route("/api/s3/test", methods=["POST"])
 def api_s3_test():
-    d = request.get_json() or {}
     cfg = get_db_config()
-    bucket = d.get("bucket") or cfg["s3_bucket"]
+    bucket = cfg["s3_bucket"]
     if not bucket:
         return jsonify({"success": False, "message": "S3 bucket name is required."})
     try:

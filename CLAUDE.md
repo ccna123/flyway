@@ -65,10 +65,12 @@ RELEASE=false
 | Biến | Ý nghĩa |
 |------|---------|
 | `APP_ENV` | `local` hoặc `prod` — ảnh hưởng badge sidebar và dev tools |
-| `RELEASE` | `false` = ẩn S3 card trong Settings; `true` = hiện S3 |
+| `RELEASE` | `false` = local mode (ẩn S3, tắt auth); `true` = prod mode (hiện S3, bật Basic Auth) |
 | `SQL_DIR` | Thư mục Flyway đọc file SQL, trong container là `/tmp/flyway-sql` |
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | PostgreSQL connection |
 | `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | AWS (S3 + staging) |
+| `SSM_PARAM_USER` | SSM path cho Basic Auth username (default: `/flywayops/basic_user`) |
+| `SSM_PARAM_PASS` | SSM path cho Basic Auth password (default: `/flywayops/basic_pass`) |
 
 ---
 
@@ -183,6 +185,29 @@ Test classes: `TestPages`, `TestUpload`, `TestFileManagement`, `TestMigrate`, `T
 - Migration history: bỏ stat cards (Total/Passed/Failed), chỉ giữ table
 - Button states: success → reset về "Run on Production"; failed → đỏ + "Retry Migration"
 - `refreshHistory()` await đúng cách trong `onDone()` để stats update ngay
+- HTTP Basic Auth: bật khi `RELEASE=true`, credentials fetch từ SSM Parameter Store lúc startup
+
+## Basic Auth — Setup trên AWS
+
+Tạo 2 SSM Parameter (SecureString) trước khi deploy:
+```bash
+aws ssm put-parameter --name "/flywayops/basic_user" --value "admin" --type SecureString
+aws ssm put-parameter --name "/flywayops/basic_pass" --value "your-strong-password" --type SecureString
+```
+
+App Runner task role cần có IAM permission:
+```json
+{
+  "Effect": "Allow",
+  "Action": "ssm:GetParameter",
+  "Resource": [
+    "arn:aws:ssm:REGION:ACCOUNT:parameter/flywayops/basic_user",
+    "arn:aws:ssm:REGION:ACCOUNT:parameter/flywayops/basic_pass"
+  ]
+}
+```
+
+Credentials được load 1 lần lúc startup (`_load_basic_auth_credentials()` trong `app.py`), cache vào module-level vars — không fetch lại mỗi request.
 
 ---
 
