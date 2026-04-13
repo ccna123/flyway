@@ -10,7 +10,7 @@ Hướng dẫn context cho Claude Code khi mở session mới trong project này
 
 | Layer | Stack |
 |-------|-------|
-| Frontend | React + Vite + Tailwind CSS (trong `ecs-controller/`) |
+| Frontend | React + Vite + Tailwind CSS (trong `frontend/`) |
 | Backend | Python Flask — thuần API, không render HTML cho React |
 | Migration engine | Flyway CLI (chạy trong backend container) |
 | DB (local) | PostgreSQL container |
@@ -47,7 +47,6 @@ flyway/
 ├── migrations/                 # Mount vào container tại /tmp/flyway-sql (volume)
 ├── .env.template
 ├── .env                        # KHÔNG commit (gitignored)
-└── PSD.md
 ```
 
 ---
