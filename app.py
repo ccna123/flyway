@@ -20,6 +20,21 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50MB
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+# ── CORS (local dev: Vite :5173 → Flask :5000) ───────────────────────────────
+@app.after_request
+def add_cors(response):
+    origin = request.headers.get("Origin", "")
+    if origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1"):
+        response.headers["Access-Control-Allow-Origin"]  = origin
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, x-api-key"
+    return response
+
+@app.route("/<path:path>", methods=["OPTIONS"])
+@app.route("/", methods=["OPTIONS"])
+def handle_options(path=""):
+    resp = jsonify({}); resp.status_code = 204; return resp
+
 # In-memory execution store (ECS task = single process, fine for this use case)
 executions: dict = {}
 executions_lock = threading.Lock()
@@ -28,57 +43,31 @@ executions_lock = threading.Lock()
 # ── Basic Auth (prod only) ─────────────────────────────────────────────────────
 
 _RELEASE     = os.environ.get("RELEASE", "false").lower() not in ("false", "0", "no")
-_BASIC_USER  = os.environ.get("BASIC_USER", "")
-_BASIC_PASS  = os.environ.get("BASIC_PASS", "")
-
-
-@app.before_request
-def require_basic_auth():
-    """Enforce HTTP Basic Auth on all routes when RELEASE=true."""
-    if not _RELEASE:
-        return  # local dev — skip auth entirely
-    auth = request.authorization
-    if auth and auth.username == _BASIC_USER and auth.password == _BASIC_PASS:
-        return  # authenticated
-    return Response(
-        "Authentication required.",
-        401,
-        {"WWW-Authenticate": 'Basic realm="FlywayOps"'},
-    )
-
-
 # ── Config ────────────────────────────────────────────────────────────────────
 
 def get_db_config() -> dict:
-    """Read all config from env vars only."""
-    release  = os.environ.get("RELEASE", "true").lower() not in ("false", "0", "no")
+    """Read only app-level config from env vars.
+    DB / S3 / staging credentials are supplied by the frontend per-request.
+    """
+    release  = os.environ.get("RELEASE", "false").lower() not in ("false", "0", "no")
     env_mode = "prod" if release else os.environ.get("APP_ENV", "local")
-    staging_host = os.environ.get("STAGING_DB_HOST", "").strip()
-
     return {
-        "db_type":  os.environ.get("DB_TYPE", "postgresql"),
-        "host":     os.environ.get("DB_HOST", ""),
-        "port":     os.environ.get("DB_PORT", "5432"),
-        "database": os.environ.get("DB_NAME", ""),
-        "username": os.environ.get("DB_USER", ""),
-        "password": os.environ.get("DB_PASSWORD", ""),
-        "schema":   os.environ.get("DB_SCHEMA", "public"),
-        "sql_dir":  os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
+        "sql_dir":   os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
         "env_mode":  env_mode,
         "env_label": env_mode,
         "release":   release,
-        # S3
-        "s3_bucket": os.environ.get("S3_BUCKET", ""),
-        "s3_region": os.environ.get("S3_REGION", "ap-northeast-1"),
-        "s3_prefix": os.environ.get("S3_PREFIX", "flyway/"),
-        # Staging / test DB
-        "staging_configured": bool(staging_host),
-        "staging_host":       staging_host,
-        "staging_port":       os.environ.get("STAGING_DB_PORT", ""),
-        "staging_db_name":    os.environ.get("STAGING_DB_NAME", ""),
-        "staging_username":   os.environ.get("STAGING_DB_USER", ""),
-        "staging_password":   os.environ.get("STAGING_DB_PASSWORD", ""),
-        "staging_schema":     os.environ.get("STAGING_DB_SCHEMA", ""),
+    }
+
+
+def _s3_from_body() -> dict:
+    """Extract S3 config sent by frontend. Never falls back to env vars."""
+    body = request.get_json(silent=True) or {}
+    s3   = body.get("s3", {})
+    return {
+        "s3_bucket": s3.get("bucket", ""),
+        "s3_region": s3.get("region") or "ap-northeast-1",
+        "s3_prefix": s3.get("prefix", "flyway/"),
+        "sql_dir":   os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
     }
 
 
@@ -544,26 +533,51 @@ def api_migrate_history():
 
 def _s3_client(config):
     import boto3
-    return boto3.client("s3", region_name=config.get("s3_region", "ap-northeast-1"))
+    region = config.get("s3_region") or "ap-northeast-1"
+    logger.info("Creating S3 client with region=%s", region)
+    return boto3.client("s3", region_name=region)
+
+
+
 
 
 @app.route("/api/s3/test", methods=["POST"])
 def api_s3_test():
-    cfg = get_db_config()
+    cfg    = _s3_from_body()
     bucket = cfg["s3_bucket"]
+    region = cfg.get("s3_region") or "ap-northeast-1"
+    prefix = cfg["s3_prefix"].rstrip("/") + "/" if cfg["s3_prefix"] else ""
+    logger.info("S3 test — bucket=%s region=%s prefix=%s", bucket, region, prefix)
     if not bucket:
         return jsonify({"success": False, "message": "S3 bucket name is required."})
     try:
+        import botocore
         s3 = _s3_client(cfg)
-        s3.head_bucket(Bucket=bucket)
-        return jsonify({"success": True, "message": f"s3://{bucket} reachable via IAM role ✓"})
+        # get_bucket_location requires only s3:GetBucketLocation — less restrictive than HeadBucket
+        # Falls back to list_objects_v2 to confirm read access
+        try:
+            loc = s3.get_bucket_location(Bucket=bucket)
+            actual_region = loc.get("LocationConstraint") or "us-east-1"
+            if actual_region != region:
+                logger.warning("Bucket %s is in region %s but config says %s — reconnecting", bucket, actual_region, region)
+                cfg["s3_region"] = actual_region
+                s3 = _s3_client(cfg)
+        except botocore.exceptions.ClientError as loc_err:
+            # If GetBucketLocation is denied, proceed — not all policies allow it
+            logger.warning("get_bucket_location denied (%s), skipping region check", loc_err.response["Error"]["Code"])
+
+        s3.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1)
+        return jsonify({"success": True, "message": f"s3://{bucket} reachable ✓"})
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
+        err_str = str(e)
+        logger.error("S3 test failed: %s", err_str)
+        # Surface the real AWS error so it's visible in the UI
+        return jsonify({"success": False, "message": f"S3 connection failed: {err_str}"})
 
 
-@app.route("/api/s3/files", methods=["GET"])
+@app.route("/api/s3/files", methods=["POST"])
 def api_s3_files():
-    config = get_db_config()
+    config = _s3_from_body()
     bucket = config["s3_bucket"]
     prefix = config["s3_prefix"].rstrip("/") + "/" if config["s3_prefix"] else ""
     if not bucket:
@@ -584,18 +598,19 @@ def api_s3_files():
         latest_version = parsed[-1]["parsed"]["version"] if parsed else None
         return jsonify({"files": files, "latest_version": latest_version})
     except Exception as e:
-        return jsonify({"files": [], "error": str(e)})
+        logger.error("S3 list files failed: %s", e)
+        return jsonify({"files": [], "error": "S3 unavailable"})
 
 
 @app.route("/api/s3/upload", methods=["POST"])
 def api_s3_upload():
-    config = get_db_config()
+    config = _s3_from_body()
     bucket = config["s3_bucket"]
     prefix = config["s3_prefix"].rstrip("/") + "/" if config["s3_prefix"] else ""
     if not bucket:
         return jsonify({"success": False, "message": "S3 bucket not configured in Settings."})
 
-    d = request.get_json() or {}
+    d = request.get_json(silent=True) or {}
     selected = d.get("files")  # None = upload all
 
     sql_dir = Path(config["sql_dir"])
@@ -788,13 +803,13 @@ def api_delete_files():
 @app.route("/api/s3/download", methods=["POST"])
 def api_s3_download():
     """Download files from S3 to local volume."""
-    config = get_db_config()
+    config = _s3_from_body()
     bucket = config["s3_bucket"]
     prefix = config["s3_prefix"].rstrip("/") + "/" if config["s3_prefix"] else ""
     if not bucket:
         return jsonify({"success": False, "message": "S3 bucket not configured."})
 
-    d = request.get_json() or {}
+    d = request.get_json(silent=True) or {}
     selected = d.get("files")  # None = download all
 
     sql_dir = Path(config["sql_dir"])
@@ -827,7 +842,7 @@ def api_s3_download():
 @app.route("/api/s3/delete", methods=["POST"])
 def api_s3_delete():
     """Xóa file trên S3 (Prod)"""
-    config = get_db_config()
+    config = _s3_from_body()
     bucket = config["s3_bucket"]
     prefix = config["s3_prefix"].rstrip("/") + "/" if config["s3_prefix"] else ""
     
@@ -859,6 +874,50 @@ def api_s3_delete():
         return jsonify({"success": True, "deleted": deleted})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
+
+
+# ── ECS Task Self-Stop ────────────────────────────────────────────────────────
+
+def _ecs_stop_task() -> dict:
+    """Call ECS StopTask on this running task using metadata endpoint v4."""
+    import urllib.request, json as _json
+    meta_uri = os.environ.get("ECS_CONTAINER_METADATA_URI_V4", "")
+    if not meta_uri:
+        raise RuntimeError("ECS_CONTAINER_METADATA_URI_V4 not set.")
+    with urllib.request.urlopen(f"{meta_uri}/task", timeout=3) as r:
+        meta = _json.loads(r.read())
+    task_arn    = meta.get("TaskARN", "")
+    cluster_arn = meta.get("Cluster", "")
+    if not task_arn:
+        raise RuntimeError("Could not determine TaskARN from ECS metadata.")
+    import boto3
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "ap-northeast-1")
+    ecs = boto3.client("ecs", region_name=region)
+    ecs.stop_task(cluster=cluster_arn, task=task_arn, reason="Stopped by user via FlywayOps UI")
+    logger.info("ECS stop_task called: cluster=%s task=%s", cluster_arn, task_arn)
+    return {"taskArn": task_arn, "cluster": cluster_arn}
+
+
+@app.route("/api/task/stop", methods=["POST"])
+def api_task_stop():
+    """
+    Local  (RELEASE=false): trả về status=STOPPED để frontend update UI, container vẫn chạy.
+    Prod   (RELEASE=true) : gọi ECS StopTask, container sẽ bị kill sau đó.
+    """
+    if not _RELEASE:
+        # Local docker — chỉ phản hồi để frontend biết "đã stop" mà không tắt gì cả
+        logger.info("Local stop requested — returning STOPPED status without killing container.")
+        return jsonify({"success": True, "status": "STOPPED", "local": True,
+                        "message": "Local mode: container still running, UI updated only."})
+
+    # Prod — gọi ECS API thật
+    try:
+        info = _ecs_stop_task()
+        return jsonify({"success": True, "status": "STOPPING", "local": False,
+                        "message": "ECS task is stopping.", **info})
+    except Exception as e:
+        logger.error("Failed to stop ECS task: %s", e)
+        return jsonify({"success": False, "message": str(e)}), 500
 
 
 if __name__ == "__main__":
