@@ -6,9 +6,15 @@ Hướng dẫn context cho Claude Code khi mở session mới trong project này
 
 ## Project Overview
 
-**FlywayOps** — Web UI để chạy Flyway SQL migration lên PostgreSQL/Aurora trên AWS ECS.  
-Stack: Python Flask + Jinja2 (server-side render) + vanilla JS + Flyway CLI.  
-Không có frontend framework, không có build step — edit file là chạy được ngay.
+**FlywayOps** — Web UI để chạy Flyway SQL migration lên PostgreSQL/Aurora trên AWS ECS.
+
+| Layer | Stack |
+|-------|-------|
+| Frontend | React + Vite + Tailwind CSS (trong `ecs-controller/`) |
+| Backend | Python Flask — thuần API, không render HTML cho React |
+| Migration engine | Flyway CLI (chạy trong backend container) |
+| DB (local) | PostgreSQL container |
+| DB (prod) | Amazon Aurora PostgreSQL (private subnet) |
 
 ---
 
@@ -16,24 +22,72 @@ Không có frontend framework, không có build step — edit file là chạy đ
 
 ```
 flyway/
-├── app.py                  # Flask app, tất cả API routes
-├── templates/
-│   ├── base.html           # Layout chung
-│   ├── index.html          # Trang chính: upload, version, migrate, history
-│   └── settings.html       # Settings page: DB, S3, staging config
-├── static/
-│   ├── index.js            # Toàn bộ frontend logic (vanilla JS)
-│   └── styles.css          # CSS
+├── app.py                      # Flask API — tất cả routes
+├── requirements.txt
+├── Dockerfile                  # Backend container
+├── docker-compose.yml          # Local dev: backend + postgresql + frontend nginx
+│
+├── ecs-controller/             # React frontend (Vite + React + Tailwind)
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx   # Trang chính: upload, version, migrate, history
+│   │   │   └── Settings.jsx    # Settings: DB, S3, staging config
+│   │   ├── App.jsx
+│   │   ├── api.js              # Tất cả API calls
+│   │   ├── index.css
+│   │   └── main.jsx
+│   ├── Dockerfile.frontend     # (TODO) Nginx serve React build
+│   ├── nginx.conf              # (TODO) Nginx config cho frontend
+│   ├── package.json
+│   ├── vite.config.js          # Dev proxy: /api → localhost:5000
+│   └── tailwind.config.js
 ├── tests/
-│   └── test_api.py         # pytest test suite (chạy: python -m pytest tests/test_api.py -v)
-├── sample-migrations/      # File SQL mẫu để test upload
-├── migrations/             # Mount vào container tại /tmp/flyway-sql (volume)
-├── Dockerfile
-├── docker-compose.yml      # Local dev: Flask app + PostgreSQL
-├── .env.template           # Template cho .env
-├── .env                    # KHÔNG commit (gitignored)
-└── PSD.md                  # Product requirements doc
+│   └── test_api.py             # pytest (chạy: python -m pytest tests/test_api.py -v)
+├── sample-migrations/          # File SQL mẫu để test upload
+├── migrations/                 # Mount vào container tại /tmp/flyway-sql (volume)
+├── .env.template
+├── .env                        # KHÔNG commit (gitignored)
+└── PSD.md
 ```
+
+---
+
+## Architecture
+
+### Local
+
+```
+Browser
+  └─→ React dev server (Vite :5173)
+        └─→ proxy /api/* → Flask :5000
+                            └─→ PostgreSQL :5432 (container)
+                            └─→ /tmp/flyway-sql (Docker volume)
+```
+
+SQL files upload → lưu vào Docker volume (`migrations/` mount tại `/tmp/flyway-sql`).
+
+### Production
+
+```
+Browser
+  └─→ React (S3 static hosting / CloudFront)  [TODO: chưa deploy]
+        └─→ API Gateway (x-api-key header)
+              └─→ Lambda (proxy forward)
+                    └─→ Flask backend (ECS Fargate — private subnet)
+                          via AWS CloudMap service discovery
+                          └─→ Aurora PostgreSQL (private subnet)
+                          └─→ S3 (persistent SQL file storage)
+```
+
+**Prod storage:** SQL files upload → lưu vào volume ECS task + sync lên S3.  
+S3 là persistent storage — khi task restart, download lại từ S3 về volume.
+
+**Auth:** Frontend gửi `x-api-key` header → API Gateway validate key → forward tới Lambda → Lambda proxy tới backend qua CloudMap domain name.
+
+### Prod flow diagram
+
+> **TODO: chèn diagram ảnh ở đây**  
+> ![Architecture diagram placeholder](docs/arch-prod.png)
 
 ---
 
@@ -46,7 +100,8 @@ docker compose up --build
 # Những lần sau
 docker compose up
 
-# App chạy tại http://localhost:5000
+# Backend API tại http://localhost:5000
+# React dev server tại http://localhost:5173 (cd ecs-controller && npm run dev)
 # PostgreSQL local tại localhost:5432
 ```
 
@@ -64,39 +119,68 @@ RELEASE=false
 
 | Biến | Ý nghĩa |
 |------|---------|
-| `APP_ENV` | `local` hoặc `prod` — ảnh hưởng badge sidebar và dev tools |
-| `RELEASE` | `false` = local mode (ẩn S3, tắt auth); `true` = prod mode (hiện S3, bật Basic Auth) |
+| `APP_ENV` | `local` hoặc `prod` — ảnh hưởng badge và dev tools |
+| `RELEASE` | `false` = local mode (ẩn S3); `true` = prod mode (hiện S3) |
 | `SQL_DIR` | Thư mục Flyway đọc file SQL, trong container là `/tmp/flyway-sql` |
-| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | PostgreSQL connection |
-| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | AWS (S3 + staging) |
-| `BASIC_USER` | Basic Auth username (set trực tiếp trong ECS task definition env vars) |
-| `BASIC_PASS` | Basic Auth password (set trực tiếp trong ECS task definition env vars) |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | PostgreSQL/Aurora connection |
+| `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | AWS (S3) |
+| `API_KEY` | API key để validate request từ frontend (prod) |
 
 ---
 
 ## API Endpoints
 
+### Config & Pages
+
 | Method | Path | Mô tả |
 |--------|------|--------|
-| GET | `/` | Main page |
-| GET | `/settings` | Settings page |
-| POST | `/settings` | Save settings vào session |
+| GET | `/api/config` | Server metadata: `env_mode`, `release` flag |
+| GET | `/` | Legacy Flask page (index) |
+| GET | `/settings` | Legacy Flask page (settings) |
+
+### Files
+
+| Method | Path | Mô tả |
+|--------|------|--------|
 | POST | `/api/upload` | Upload SQL files, validate Flyway naming |
 | GET | `/api/files` | List files trong volume |
 | DELETE | `/api/files/<filename>` | Xóa một file |
 | POST | `/api/files/delete` | Bulk delete (`{"files": [...]}` hoặc `{"files": null}` = xóa hết) |
+
+### Migration
+
+| Method | Path | Mô tả |
+|--------|------|--------|
 | POST | `/api/migrate` | Bắt đầu migration async, trả về `executionId` |
 | GET | `/api/migrate/status/<id>` | Poll trạng thái + logs |
 | GET | `/api/migrate/history` | Lịch sử migration |
 | POST | `/api/migrate/staging` | Chạy migration trên staging DB |
 | POST | `/api/test-connection` | Test DB connection |
+
+### S3
+
+| Method | Path | Mô tả |
+|--------|------|--------|
+| POST | `/api/s3/test` | Test S3 connection |
+| POST | `/api/s3/files` | List files trên S3 |
 | POST | `/api/s3/upload` | Upload files từ volume lên S3 |
-| GET | `/api/s3/files` | List files trên S3 |
 | POST | `/api/s3/download` | Download files từ S3 về volume |
-| POST | `/api/dev/seed` | Dev: insert test data |
-| GET | `/api/dev/query` | Dev: query test data |
-| POST | `/api/dev/update` | Dev: update test data |
-| POST | `/api/dev/clear` | Dev: drop tables + clear files + reset history |
+| POST | `/api/s3/delete` | Xóa files trên S3 |
+
+### ECS Task Control
+
+| Method | Path | Mô tả |
+|--------|------|--------|
+| POST | `/api/task/stop` | Stop ECS task hiện tại |
+
+### Dev Tools (chỉ khi `APP_ENV=local`)
+
+| Method | Path | Mô tả |
+|--------|------|--------|
+| POST | `/api/dev/seed` | Insert test data |
+| POST | `/api/dev/query` | Query test data |
+| POST | `/api/dev/update` | Update test data |
+| POST | `/api/dev/clear` | Drop tables + clear files + reset history |
 
 ---
 
@@ -111,7 +195,7 @@ cmd = [
     f"-schemas={schema}",
     f"-locations=filesystem:{sql_dir}",
     "-baselineOnMigrate=true",
-    "-baselineVersion=0",       # quan trọng: baseline ở 0 để V1 không bị skip
+    "-baselineVersion=0",       # critical: baseline ở 0 để V1 không bị skip
     f"-outOfOrder={out_of_order}",
     "migrate",
 ]
@@ -121,52 +205,42 @@ cmd = [
 
 ---
 
-## Frontend (index.js) — Key flows
+## Migration flow
 
-**Migration flow:**
-1. `runMigration()` → POST `/api/migrate` → nhận `executionId`
-2. `startPolling()` → poll `/api/migrate/status/{id}` mỗi 3s
-3. `setLog(data.logs)` update log panel
-4. `onDone(ok, errMsg, verification)` → `renderVerification()` + `refreshHistory()`
-
-**Staging flow** (tương tự production):
-1. `runStagingTest()` → POST `/api/migrate/staging` → nhận `executionId`
-2. `pollStaging()` → cùng poll như production, cùng dùng log panel + verify panel
-3. `stagingDone()` → hiện result + `renderVerification()`
-
-**State:**
-```js
-const state = { files, selectedVersion, executionId, pollTimer, pollCount, running }
-let stagingState = { running, executionId, pollTimer }
-```
+> **TODO: chèn flow diagram ảnh ở đây**  
+> ![Migration flow placeholder](docs/migration-flow.png)
 
 ---
 
-## UI Layout (index.html)
+## UI Layout
+
+> **TODO: chèn UI screenshot ở đây**  
+> ![UI layout placeholder](docs/ui-layout.png)
 
 ```
-Card 01 — Upload SQL Files
-Card 02 — Select Target Version (version chips + delete toolbar)
-Card 03 — Execute Migration
-  ├── STEP 1 · OPTIONAL: Test on Staging  [Run on Staging]
-  └── STEP 2 · PRODUCTION: Apply to Production  [Run on Production]
-       (shared Execution Log + Post-Migration Verification panel ở cột phải)
-Card — S3 Files (chỉ hiện khi prod + s3_bucket configured)
-Card — Dev Tools (chỉ hiện khi APP_ENV=local)
-Card — Migration History (table, không có stat cards)
-```
+Dashboard page:
+  Card 01 — Upload SQL Files
+  Card 02 — Select Target Version (version chips + delete toolbar)
+  Card 03 — Execute Migration
+    ├── STEP 1 · OPTIONAL: Test on Staging  [Run on Staging]
+    └── STEP 2 · PRODUCTION: Apply to Production  [Run on Production]
+         (shared Execution Log + Post-Migration Verification panel ở cột phải)
+  Card — S3 Files (chỉ hiện khi RELEASE=true + s3_bucket configured)
+  Card — Dev Tools (chỉ hiện khi APP_ENV=local)
+  Card — Migration History (table)
 
-Settings page (`settings.html`):
-- Grid 2 cột: DB Connection card | S3 card (S3 ẩn khi `RELEASE=false`)
-- Port + DB Name + Schema gom 1 hàng: `grid-template-columns: 110px 1fr 120px`
-- Staging DB fields phía dưới
+Settings page:
+  Grid 2 cột: DB Connection card | S3 card (S3 ẩn khi RELEASE=false)
+  Port + DB Name + Schema gom 1 hàng
+  Staging DB fields phía dưới
+```
 
 ---
 
 ## Test suite
 
 ```bash
-# App phải đang chạy tại localhost:5000
+# Backend phải đang chạy tại localhost:5000
 python -m pytest tests/test_api.py -v
 
 # Kết quả hiện tại: 33 passed, 1 skipped
@@ -185,50 +259,18 @@ Test classes: `TestPages`, `TestUpload`, `TestFileManagement`, `TestMigrate`, `T
 - Migration history: bỏ stat cards (Total/Passed/Failed), chỉ giữ table
 - Button states: success → reset về "Run on Production"; failed → đỏ + "Retry Migration"
 - `refreshHistory()` await đúng cách trong `onDone()` để stats update ngay
-- HTTP Basic Auth: bật khi `RELEASE=true`, credentials đọc từ env vars `BASIC_USER` / `BASIC_PASS`
-
-## Basic Auth — Setup trên AWS
-
-Set 2 env vars trong ECS task definition hoặc App Runner:
-```
-BASIC_USER=admin
-BASIC_PASS=your-strong-password
-```
-
-Không cần SSM, không cần IAM permission thêm. Ai có quyền vào ECS Console mới thấy giá trị — chấp nhận được cho internal tool.
+- CORS: allow `x-api-key` header cho prod auth flow
+- `/api/task/stop` endpoint để frontend stop ECS task khi xong việc
+- React frontend (`ecs-controller/`) với Vite + Tailwind, proxy `/api` về Flask khi dev
 
 ---
 
-## Next project: ECS Controller (chưa build)
+## TODO / Chưa làm
 
-Một React app riêng (repo khác hoặc subfolder `ecs-controller/`) để:
-
-**Mục đích:** Admin có thể bật/tắt ECS task chạy FlywayOps mà không cần vào AWS Console.
-
-**Architecture:**
-```
-React (static) → API Gateway (x-api-key header) → Lambda → ECS Fargate
-```
-
-**3 Lambda endpoints:**
-| Endpoint | Lambda làm gì |
-|----------|---------------|
-| `POST /start` | `ecs.run_task()` với `assignPublicIp=ENABLED` |
-| `GET /status` | `describe_tasks()` → lấy ENI → `describe_network_interfaces()` → trả public IP |
-| `POST /stop` | `ecs.stop_task()` |
-
-**React UI (đơn giản):**
-- Input nhập API key (lưu localStorage)
-- Badge trạng thái: STOPPED / STARTING / RUNNING
-- Nếu RUNNING: hiện URL (public IP:5000), link bấm vào mở FlywayOps
-- Nút "Start App" và "Stop App"
-- Poll `/status` mỗi 5s khi đang STARTING
-
-**Lưu ý khi build:**
-- Public IP không có ngay, phải poll cho đến khi task RUNNING (~30-60s)
-- IP lấy qua 2 bước: `describe_tasks` → ENI attachment → `describe_network_interfaces`
-- FlywayOps chạy trên HTTP (port 5000), không có HTTPS — chấp nhận được cho internal tool
-- Nên thêm auto-stop sau X phút (EventBridge Scheduler) để tránh quên tắt tốn tiền
-- ECS task phải nằm trong public subnet, security group mở port 5000 inbound
-
-**Chưa làm gì, bắt đầu từ đầu.**
+- [ ] `Dockerfile.frontend` + `nginx.conf` cho React build (phục vụ qua nginx trong docker-compose)
+- [ ] Cập nhật `docker-compose.yml` thêm service `frontend` (nginx)
+- [ ] API Gateway + Lambda setup cho prod (proxy tới backend qua CloudMap)
+- [ ] CloudMap service discovery config cho ECS task
+- [ ] S3 static hosting / CloudFront cho React app
+- [ ] Auto-stop ECS task sau X phút (EventBridge Scheduler)
+- [ ] Thêm `docs/arch-prod.png`, `docs/migration-flow.png`, `docs/ui-layout.png`
