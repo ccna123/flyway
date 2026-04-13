@@ -40,7 +40,20 @@ executions: dict = {}
 executions_lock = threading.Lock()
 
 
-# ── Basic Auth (prod only) ─────────────────────────────────────────────────────
+# ── API Key auth ──────────────────────────────────────────────────────────────
+
+_API_KEY = os.environ.get("API_KEY", "").strip()
+
+@app.before_request
+def check_api_key():
+    """Validate x-api-key header if API_KEY is configured. Skip for OPTIONS and local dev."""
+    if not _API_KEY:
+        return  # Not configured — local dev, skip
+    if request.method == "OPTIONS":
+        return  # Skip CORS preflight
+    key = request.headers.get("x-api-key", "")
+    if key != _API_KEY:
+        return jsonify({"error": "Unauthorized"}), 401
 
 _RELEASE     = os.environ.get("RELEASE", "false").lower() not in ("false", "0", "no")
 # ── Config ────────────────────────────────────────────────────────────────────

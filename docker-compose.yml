@@ -20,7 +20,9 @@ services:
       retries: 10
 
   app:
-    build: .
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: flyway-app
     restart: unless-stopped
     ports:
@@ -28,12 +30,21 @@ services:
     volumes:
       - ./migrations:/tmp/flyway-sql
     env_file:
-      - .env
-    environment:
-      - JAVA_ARGS=-Djava.net.preferIPv4Stack=true
+      - ./backend/.env
     depends_on:
       postgres:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: flyway-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - app
 
 volumes:
   pgdata:
