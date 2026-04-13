@@ -7,7 +7,7 @@
 testsprite_tests/tmp/*
 
 frontend/node_modules/*
-frontend/build/*
+frontend/dist/*
 frontend/.vscode/*
 frontend/.idea/*
 frontend/.env
