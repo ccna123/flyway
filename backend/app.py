@@ -48,7 +48,7 @@ def get_db_config() -> dict:
     DB / S3 / staging credentials are supplied by the frontend per-request.
     """
     release  = os.environ.get("RELEASE", "false").lower() not in ("false", "0", "no")
-    env_mode = "prod" if release else os.environ.get("APP_ENV", "local")
+    env_mode = "prod" if release else "local"
     return {
         "sql_dir":   os.environ.get("SQL_DIR", "/tmp/flyway-sql"),
         "env_mode":  env_mode,
