@@ -48,18 +48,23 @@ phases:
       - docker tag $BACKEND_IMAGE $BACKEND_LATEST && docker push $BACKEND_LATEST
 
       - echo "=== Fetching current Task Definition ==="
-      - TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY --query taskDefinition --output json)
+      - aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY --query taskDefinition --output json > /tmp/task_def.json
+      - cat /tmp/task_def.json
 
       - echo "=== Injecting new image URIs ==="
       - |
         cat > /tmp/update_task.py << 'PYEOF'
         import json, os
-        task_def = json.loads(os.environ['TASK_DEF'])
+
+        with open('/tmp/task_def.json') as f:
+            task_def = json.load(f)
+
         for c in task_def.get('containerDefinitions', []):
             if c['name'] == os.environ['CONTAINER_NAME_FRONTEND']:
                 c['image'] = os.environ['FRONTEND_IMAGE']
             elif c['name'] == os.environ['CONTAINER_NAME_BACKEND']:
                 c['image'] = os.environ['BACKEND_IMAGE']
+
         keep = [
             'family', 'taskRoleArn', 'executionRoleArn', 'networkMode',
             'containerDefinitions', 'volumes', 'placementConstraints',
@@ -68,12 +73,18 @@ phases:
             'inferenceAccelerators', 'ephemeralStorage', 'runtimePlatform',
         ]
         clean = {k: v for k, v in task_def.items() if k in keep}
-        print(json.dumps(clean))
+
+        with open('/tmp/new_task_def.json', 'w') as f:
+            json.dump(clean, f)
+
+        print("Done. Written to /tmp/new_task_def.json")
         PYEOF
-      - NEW_TASK_DEF=$(python3 /tmp/update_task.py)
+      - python3 /tmp/update_task.py
+      - echo "=== New task def JSON ==="
+      - cat /tmp/new_task_def.json
 
       - echo "=== Registering new Task Definition revision ==="
-      - NEW_TASK_DEF_ARN=$(echo $NEW_TASK_DEF | aws ecs register-task-definition --cli-input-json file:///dev/stdin --query 'taskDefinition.taskDefinitionArn' --output text)
+      - NEW_TASK_DEF_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/new_task_def.json --query 'taskDefinition.taskDefinitionArn' --output text)
       - echo "New Task Definition ARN $NEW_TASK_DEF_ARN"
 
       - echo "=== Running ECS Task ==="
