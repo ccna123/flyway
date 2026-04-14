@@ -61,7 +61,16 @@ phases:
         for c in task_def.get('containerDefinitions', []):
             if c['name'] == os.environ['CONTAINER_NAME_FRONTEND']:
                 c['image'] = os.environ['FRONTEND_IMAGE']
-                c['essential'] = True                 
+                c['essential'] = True
+                c['logConfiguration'] = {
+                    'logDriver': 'awslogs',
+                    'options': {
+                        'awslogs-group': '/ecs/migration-task-df',
+                        'awslogs-create-group': 'true',
+                        'awslogs-region': 'ap-northeast-1',
+                        'awslogs-stream-prefix': 'ecs'
+                    }
+                }                 
             elif c['name'] == os.environ['CONTAINER_NAME_BACKEND']:
                 c['image'] = os.environ['BACKEND_IMAGE']
                 c['essential'] = True              
@@ -74,6 +83,8 @@ phases:
             'inferenceAccelerators', 'ephemeralStorage', 'runtimePlatform',
         ]
         clean = {k: v for k, v in task_def.items() if k in keep}
+        clean['cpu'] = '1024'   
+        clean['memory'] = '2048' 
 
         with open('/tmp/new_task_def.json', 'w') as f:
             json.dump(clean, f)
