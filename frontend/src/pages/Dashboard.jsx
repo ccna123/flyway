@@ -64,11 +64,12 @@ function Btn({ children, onClick, disabled, className, style, size = 'md' }) {
 }
 
 // Sidebar navigation
-function Sidebar({ config, onStop, stopping, stopped }) {
-  const dotColor  = stopped ? '#f66070' : stopping ? '#f5a623' : '#3ecf8e'
-  const dotLabel  = stopped ? 'STOPPED'  : stopping ? 'STOPPING…' : 'RUNNING'
-  const btnLabel  = stopped ? 'Stopped'  : stopping ? 'Stopping…' : 'Stop Task'
-  const canStop   = !stopping && !stopped
+function Sidebar({ config, onStop, stopping, backendOnline }) {
+  const isDown    = stopping || !backendOnline
+  const dotColor  = stopping ? '#f5a623' : backendOnline ? '#3ecf8e' : '#f66070'
+  const dotLabel  = stopping ? 'STOPPING…' : backendOnline ? 'RUNNING' : 'STOPPED'
+  const btnLabel  = stopping ? 'Stopping…' : !backendOnline ? 'Stopped' : 'Stop Task'
+  const canStop   = !isDown
   return (
     <div className="fixed left-0 top-0 h-full flex flex-col" style={{ width: 200, background: '#0d1117', borderRight: '1px solid #21262d' }}>
       <div className="px-4 py-4 flex items-center gap-2" style={{ borderBottom: '1px solid #21262d' }}>
@@ -650,7 +651,7 @@ function MigrationCard({ config, selectedVersion }) {
               </span>
               <div className="text-xs font-semibold mt-2 mb-1" style={{ color: '#d1d5db' }}>Test on Staging</div>
               {config?.staging_host
-                ? <div className="text-xs font-mono mb-2" style={{ color: '#6b7280' }}>{config.staging_host}{config.staging_db_name ? ' / ' + config.staging_db_name : ''}</div>
+                ? <div className="text-xs font-mono mb-2 truncate" title={`${config.staging_host}${config.staging_db_name ? ' / ' + config.staging_db_name : ''}`} style={{ color: '#6b7280', maxWidth: 200 }}>{config.staging_host}{config.staging_db_name ? ' / ' + config.staging_db_name : ''}</div>
                 : <Link to="/settings" className="text-xs mb-2 block" style={{ color: '#6b7280' }}>Not configured — go to Settings →</Link>
               }
               <Btn onClick={runStaging} disabled={stgState.running || !selectedVersion || !config?.staging_host} size="sm" style={{ color: '#f5a623', borderColor: '#f5a623' }}>
@@ -670,7 +671,7 @@ function MigrationCard({ config, selectedVersion }) {
               </span>
               <div className="text-xs font-semibold mt-2 mb-1" style={{ color: '#d1d5db' }}>Apply to Production</div>
               {config?.host
-                ? <div className="text-xs font-mono mb-3" style={{ color: '#6b7280' }}>{config.host}:{config.port} / {config.database}</div>
+                ? <div className="text-xs font-mono mb-3 truncate" title={`${config.host}:${config.port} / ${config.database}`} style={{ color: '#6b7280', maxWidth: 200 }}>{config.host}:{config.port} / {config.database}</div>
                 : <div className="text-xs mb-3" style={{ color: '#6b7280' }}>Not configured</div>
               }
               <button onClick={runProduction} disabled={prodState.running || !selectedVersion}
@@ -823,15 +824,31 @@ export default function Dashboard() {
   const [selectedVersion, setVersion] = useState(null)
   const [history, setHistory]       = useState([])
   const [showStopModal, setShowStopModal] = useState(false)
-  const [stopping, setStopping]     = useState(false)
-  const [stopped, setTaskStopped]   = useState(false)
-  const [stopError, setStopError]   = useState(null)
+  const [stopping, setStopping]       = useState(false)
+  const [backendOnline, setBackendOnline] = useState(true)
+  const [taskStopped, setTaskStopped] = useState(false)
+  const [stopError, setStopError]     = useState(null)
 
   // Derived: is this local docker (RELEASE=false) or prod ECS?
   const isLocal = config ? !config.release : true
 
   useEffect(() => {
     loadConfig(); loadFiles(); loadHistory()
+  }, [])
+
+  // Poll backend health every 15s
+  useEffect(() => {
+    async function checkBackend() {
+      try {
+        const res = await fetch('/api/config', { signal: AbortSignal.timeout(5000) })
+        setBackendOnline(res.ok)
+      } catch {
+        setBackendOnline(false)
+      }
+    }
+    checkBackend()
+    const id = setInterval(checkBackend, 15000)
+    return () => clearInterval(id)
   }, [])
 
   async function loadConfig() {
@@ -874,15 +891,25 @@ export default function Dashboard() {
       return
     }
 
-    // Success — close modal first, then update status
+    // Success — close modal, show stopped overlay
     setShowStopModal(false)
+    setTaskStopped(true)
     if (data.local) {
-      // Local docker: container still running, UI only update
       setStopping(false)
-      setTaskStopped(true)
+      setBackendOnline(false)
     }
-    // Prod: keep stopping=true — ECS will kill container, page goes unreachable
+    // Prod: ECS will kill container — overlay tells user to close tab
   }
+
+  if (taskStopped) return (
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-4" style={{ background: '#0f1117' }}>
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#f66070" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" />
+      </svg>
+      <div className="text-base font-semibold" style={{ color: '#f0f6fc' }}>Task stopped</div>
+      <div className="text-sm" style={{ color: '#6b7280' }}>You can close this tab.</div>
+    </div>
+  )
 
   return (
     <div style={{ background: '#0f1117', minHeight: '100vh' }}>
@@ -890,7 +917,7 @@ export default function Dashboard() {
         config={config}
         onStop={() => { setStopError(null); setShowStopModal(true) }}
         stopping={stopping}
-        stopped={stopped}
+        backendOnline={backendOnline}
       />
       <div style={{ marginLeft: 200, padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Header */}
