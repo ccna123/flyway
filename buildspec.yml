@@ -73,7 +73,21 @@ phases:
                 }                 
             elif c['name'] == os.environ['CONTAINER_NAME_BACKEND']:
                 c['image'] = os.environ['BACKEND_IMAGE']
-                c['essential'] = True              
+                c['essential'] = True
+                c['logConfiguration'] = {
+                    'logDriver': 'awslogs',
+                    'options': {
+                        'awslogs-group': '/ecs/migration-task-df',
+                        'awslogs-create-group': 'true',
+                        'awslogs-region': 'ap-northeast-1',
+                        'awslogs-stream-prefix': 'ecs'
+                    }
+                }
+                # Merge: giữ secrets/env cũ từ task def, override non-secret vars
+                backend_env = {e['name']: e for e in c.get('environment', [])}
+                for key, val in [('RELEASE', 'true'), ('APP_ENV', 'prod'), ('SQL_DIR', '/tmp/flyway-sql')]:
+                    backend_env[key] = {'name': key, 'value': val}
+                c['environment'] = list(backend_env.values())
 
         keep = [
             'family', 'taskRoleArn', 'executionRoleArn', 'networkMode',
