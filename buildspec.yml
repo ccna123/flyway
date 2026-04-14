@@ -2,13 +2,13 @@ version: 0.2
 
 env:
   variables:
-    AWS_DEFAULT_REGION: "ap-northeast-1"           # <-- đổi theo region của bạn
-    ECR_REPO_FRONTEND: "flyway-frontend"           # <-- tên ECR repo frontend
-    ECR_REPO_BACKEND: "flyway-backend"             # <-- tên ECR repo backend
-    ECS_CLUSTER: "jinzaicompass-migrate-cluster"                  # <-- tên ECS cluster
-    TASK_DEFINITION_FAMILY: "migration-task-df"          # <-- tên task definition family
-    CONTAINER_NAME_FRONTEND: "flyway-frontend-container"     # <-- tên container trong task def
-    CONTAINER_NAME_BACKEND: "flyway-backend-container"           # <-- tên container trong task def
+    AWS_DEFAULT_REGION: "ap-northeast-1"
+    ECR_REPO_FRONTEND: "flyway-frontend"
+    ECR_REPO_BACKEND: "flyway-backend"
+    ECS_CLUSTER: "jinzaicompass-migrate-cluster"
+    TASK_DEFINITION_FAMILY: "migration-task-df"
+    CONTAINER_NAME_FRONTEND: "flyway-frontend-container"
+    CONTAINER_NAME_BACKEND: "flyway-backend-container"
 
 phases:
   pre_build:
@@ -20,7 +20,7 @@ phases:
 
       - echo "=== Setting image tags ==="
       - IMAGE_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-latest}
-      - IMAGE_TAG=${IMAGE_TAG:0:8}   # dùng 8 ký tự đầu của commit hash
+      - IMAGE_TAG=${IMAGE_TAG:0:8}
 
       - FRONTEND_IMAGE="${ECR_REGISTRY}/${ECR_REPO_FRONTEND}:${IMAGE_TAG}"
       - BACKEND_IMAGE="${ECR_REGISTRY}/${ECR_REPO_BACKEND}:${IMAGE_TAG}"
@@ -42,38 +42,24 @@ phases:
       - docker push $FRONTEND_IMAGE
       - docker push $BACKEND_IMAGE
 
-      # ---- Tag :latest cũng push lên ECR ----
       - FRONTEND_LATEST="${ECR_REGISTRY}/${ECR_REPO_FRONTEND}:latest"
       - BACKEND_LATEST="${ECR_REGISTRY}/${ECR_REPO_BACKEND}:latest"
       - docker tag $FRONTEND_IMAGE $FRONTEND_LATEST && docker push $FRONTEND_LATEST
-      - docker tag $BACKEND_IMAGE  $BACKEND_LATEST  && docker push $BACKEND_LATEST
+      - docker tag $BACKEND_IMAGE $BACKEND_LATEST && docker push $BACKEND_LATEST
 
-      # ---- Cập nhật ECS Task Definition ----
       - echo "=== Fetching current Task Definition ==="
-      - |
-        TASK_DEF=$(aws ecs describe-task-definition \
-          --task-definition $TASK_DEFINITION_FAMILY \
-          --query taskDefinition)
+      - TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY --query taskDefinition --output json)
 
       - echo "=== Injecting new image URIs ==="
       - |
-        NEW_TASK_DEF=$(echo $TASK_DEF | python3 - <<'PYEOF'
-        import sys, json, os
-
-        task_def   = json.loads(os.environ['TASK_DEF'])
-        fe_image   = os.environ['FRONTEND_IMAGE']
-        be_image   = os.environ['BACKEND_IMAGE']
-        fe_name    = os.environ['CONTAINER_NAME_FRONTEND']
-        be_name    = os.environ['CONTAINER_NAME_BACKEND']
-
-        containers = task_def.get('containerDefinitions', [])
-        for c in containers:
-            if c['name'] == fe_name:
-                c['image'] = fe_image
-            elif c['name'] == be_name:
-                c['image'] = be_image
-
-        # Giữ lại chỉ những field được phép khi register
+        cat > /tmp/update_task.py << 'PYEOF'
+        import json, os
+        task_def = json.loads(os.environ['TASK_DEF'])
+        for c in task_def.get('containerDefinitions', []):
+            if c['name'] == os.environ['CONTAINER_NAME_FRONTEND']:
+                c['image'] = os.environ['FRONTEND_IMAGE']
+            elif c['name'] == os.environ['CONTAINER_NAME_BACKEND']:
+                c['image'] = os.environ['BACKEND_IMAGE']
         keep = [
             'family', 'taskRoleArn', 'executionRoleArn', 'networkMode',
             'containerDefinitions', 'volumes', 'placementConstraints',
@@ -84,33 +70,26 @@ phases:
         clean = {k: v for k, v in task_def.items() if k in keep}
         print(json.dumps(clean))
         PYEOF
-        )
+      - NEW_TASK_DEF=$(python3 /tmp/update_task.py)
 
       - echo "=== Registering new Task Definition revision ==="
-      - |
-        NEW_TASK_DEF_ARN=$(echo $NEW_TASK_DEF | \
-          aws ecs register-task-definition \
-            --cli-input-json file:///dev/stdin \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text)
-      - echo "New Task Definition ARN: $NEW_TASK_DEF_ARN"
+      - NEW_TASK_DEF_ARN=$(echo $NEW_TASK_DEF | aws ecs register-task-definition --cli-input-json file:///dev/stdin --query 'taskDefinition.taskDefinitionArn' --output text)
+      - echo "New Task Definition ARN $NEW_TASK_DEF_ARN"
 
-      - echo "=== Updating ECS Service ==="
+      - echo "=== Running ECS Task ==="
       - |
         aws ecs run-task \
           --cluster $ECS_CLUSTER \
           --task-definition $NEW_TASK_DEF_ARN \
           --launch-type FARGATE \
-          --force-new-deployment \
           --network-configuration "awsvpcConfiguration={subnets=[subnet-02145208a3f7df54d],securityGroups=[sg-0d20fc0838975d429],assignPublicIp=ENABLED}"
 
       - echo "=== Build & Deploy completed successfully ==="
 
-      # ---- Ghi artifact cho CodePipeline (tuỳ chọn) ----
       - |
         printf '[{"name":"%s","imageUri":"%s"},{"name":"%s","imageUri":"%s"}]' \
           "$CONTAINER_NAME_FRONTEND" "$FRONTEND_IMAGE" \
-          "$CONTAINER_NAME_BACKEND"  "$BACKEND_IMAGE" \
+          "$CONTAINER_NAME_BACKEND" "$BACKEND_IMAGE" \
           > imagedefinitions.json
       - cat imagedefinitions.json
 
