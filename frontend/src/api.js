@@ -1,6 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const MOCK = import.meta.env.VITE_MOCK === "true";
-const API_KEY = import.meta.env.VITE_API_KEY || "";
 
 // ── Mock data ────────────────────────────────────────────────────────────────
 let _mockFiles = [];
@@ -148,9 +147,6 @@ async function mockCall(path, method = "GET", body = null) {
 // ── Real fetch ───────────────────────────────────────────────────────────────
 async function realCall(path, method = "GET", body = null, isFormData = false) {
   const opts = { method, headers: {} };
-  if (API_KEY) {
-    opts.headers["x-api-key"] = API_KEY;
-  }
   if (body && !isFormData) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);

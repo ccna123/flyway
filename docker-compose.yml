@@ -25,8 +25,6 @@ services:
       dockerfile: Dockerfile
     container_name: flyway-app
     restart: unless-stopped
-    ports:
-      - "5000:5000"
     volumes:
       - ./migrations:/tmp/flyway-sql
     env_file:
@@ -43,6 +41,10 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    environment:
+      - NGINX_USER=${NGINX_USER:-admin}
+      - NGINX_PASS=${NGINX_PASS:-admin}
     depends_on:
       - app
 
